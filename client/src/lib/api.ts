@@ -16,6 +16,7 @@ import {
   LocalNeoForgeItem,
   BedrockStatus,
   BedrockPacksResponse,
+  BedrockVersionsResponse,
 } from './types';
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -483,13 +484,16 @@ export const api = {
       body: JSON.stringify({ properties }),
     });
   },
-  getBedrockVersions: async (): Promise<{ installed: any; available: { version: string; downloadUrl: string } }> => {
+  getBedrockVersions: async (): Promise<BedrockVersionsResponse> => {
     return request('/api/bedrock/versions', { method: 'GET' });
   },
-  installBedrockServer: async (downloadUrl?: string): Promise<{ success: boolean; version: string; message: string }> => {
+  installBedrockServer: async (payload?: {
+    version?: string;
+    downloadUrl?: string;
+  }): Promise<{ success: boolean; version: string; message: string }> => {
     return request('/api/bedrock/install', {
       method: 'POST',
-      body: JSON.stringify({ downloadUrl }),
+      body: JSON.stringify(payload || {}),
     });
   },
 

@@ -4,6 +4,7 @@ import {
   LocalNeoForgeItem,
   InstalledVersionInfo,
   MinecraftRelease,
+  BedrockVersionsResponse,
 } from '../../lib/types';
 import { AnimatedTabs } from '../../components/rareui/AnimatedTab';
 import { RareVersionsIcon, RareTerminalIcon } from '../../components/rareui/RareIcons';
@@ -107,12 +108,18 @@ export const VersionsView: React.FC = () => {
   const [executingCommand, setExecutingCommand] = useState(false);
 
   // Bedrock state
+  const [bedrockCatalog, setBedrockCatalog] = useState<BedrockVersionsResponse | null>(null);
+  const [selectedBedrockVersion, setSelectedBedrockVersion] = useState<string>('');
+  const [bedrockSearchFilter, setBedrockSearchFilter] = useState<string>('');
+  const [customBedrockUrl, setCustomBedrockUrl] = useState<string>('');
+  const [showCustomUrlInput, setShowCustomUrlInput] = useState<boolean>(false);
   const [bedrockStatus, setBedrockStatus] = useState<{
     isInstalled: boolean;
     version: string | null;
     status: string;
     port: number;
     protocolVersion?: number;
+    platform?: string;
   }>({ isInstalled: false, version: null, status: 'offline', port: 19132 });
   const [loadingBedrock, setLoadingBedrock] = useState(false);
   const [installingBedrock, setInstallingBedrock] = useState(false);
@@ -121,7 +128,7 @@ export const VersionsView: React.FC = () => {
     loadLocalNeoForge();
     loadInstalledMetadata();
     loadMojangReleases();
-    loadBedrockStatus();
+    loadBedrockData();
   }, []);
 
   const loadLocalNeoForge = async () => {
@@ -160,15 +167,29 @@ export const VersionsView: React.FC = () => {
     }
   };
 
-  const loadBedrockStatus = async () => {
+  const loadBedrockData = async () => {
     setLoadingBedrock(true);
     try {
-      const data = await (api as any).getBedrockStatus?.();
-      if (data) {
-        setBedrockStatus(data);
+      const [statusRes, catalogRes] = await Promise.allSettled([
+        (api as any).getBedrockStatus?.(),
+        api.getBedrockVersions(),
+      ]);
+
+      if (statusRes.status === 'fulfilled' && statusRes.value) {
+        setBedrockStatus(statusRes.value);
       }
-    } catch {
-      // Backend bedrock route may not be mounted yet
+      if (catalogRes.status === 'fulfilled' && catalogRes.value) {
+        setBedrockCatalog(catalogRes.value);
+        if (!selectedBedrockVersion) {
+          const defaultVer =
+            catalogRes.value.latest?.version ||
+            catalogRes.value.versions?.[0]?.version ||
+            '';
+          setSelectedBedrockVersion(defaultVer);
+        }
+      }
+    } catch (err) {
+      console.warn('Error loading Bedrock data:', err);
     } finally {
       setLoadingBedrock(false);
     }
@@ -334,12 +355,19 @@ export const VersionsView: React.FC = () => {
     setInstallingBedrock(true);
     setUploadMessage(null);
     try {
-      const res = await (api as any).installBedrockServer?.();
+      const payload: { version?: string; downloadUrl?: string } = {};
+      if (showCustomUrlInput && customBedrockUrl.trim()) {
+        payload.downloadUrl = customBedrockUrl.trim();
+      } else if (selectedBedrockVersion) {
+        payload.version = selectedBedrockVersion;
+      }
+
+      const res = await api.installBedrockServer(payload);
       setUploadMessage({
         type: 'success',
-        text: res?.message || 'Servidor Bedrock instalado y configurado correctamente en /data/bedrock.',
+        text: res?.message || `Servidor Bedrock v${res.version} instalado y configurado correctamente en /data/bedrock.`,
       });
-      await loadBedrockStatus();
+      await loadBedrockData();
     } catch (err: any) {
       setUploadMessage({
         type: 'error',
@@ -394,7 +422,7 @@ export const VersionsView: React.FC = () => {
           onClick={() => {
             loadLocalNeoForge();
             loadInstalledMetadata();
-            loadBedrockStatus();
+            loadBedrockData();
           }}
           className="min-h-[44px] px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 text-xs font-medium border border-white/[0.08] hover:border-white/20 flex items-center gap-2 transition-colors self-start sm:self-auto cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
         >
@@ -953,22 +981,35 @@ export const VersionsView: React.FC = () => {
                     <h3 className="text-sm font-semibold text-white">
                       Minecraft Bedrock Dedicated Server (BDS)
                     </h3>
-                    <InfoTip content="Servidor oficial Mojang en C++ nativo para Windows 10/11, móviles y consolas." />
+                    <InfoTip content="Servidor oficial Mojang en C++ nativo para Windows 10/11, consolas y dispositivos móviles en puerto UDP 19132." />
                   </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Descarga, instala o cambia de versión oficial de Minecraft Bedrock
+                  </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className={`px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold border ${
-                  bedrockStatus.isInstalled
-                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
-                    : 'bg-slate-800 border-white/[0.08] text-slate-400'
-                }`}>
-                  {bedrockStatus.isInstalled ? 'INSTALADO' : 'NO INSTALADO'}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold border ${
+                    bedrockStatus.isInstalled
+                      ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                      : 'bg-slate-800 border-white/[0.08] text-slate-400'
+                  }`}
+                >
+                  {bedrockStatus.isInstalled
+                    ? `INSTALADO (v${bedrockStatus.version || bedrockCatalog?.installed?.version || 'Detectada'})`
+                    : 'NO INSTALADO'}
+                </span>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-white/[0.04] text-slate-400 border border-white/[0.08]">
+                  {bedrockCatalog?.installed?.platform === 'win32'
+                    ? 'Plataforma: Windows (bin-win)'
+                    : 'Plataforma: Linux (bin-linux)'}
                 </span>
               </div>
             </div>
 
+            {/* Status Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] space-y-1">
                 <span className="text-slate-400 font-medium">Puerto de Red</span>
@@ -977,45 +1018,156 @@ export const VersionsView: React.FC = () => {
               </div>
               <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] space-y-1">
                 <span className="text-slate-400 font-medium">Ruta de Instalación</span>
-                <p className="text-emerald-400 font-mono text-xs">/data/bedrock</p>
-                <span className="text-[11px] text-slate-500">Persiste en volumen Docker aislado</span>
+                <p className="text-emerald-400 font-mono text-xs">
+                  {bedrockCatalog?.installed?.serverDir || '/data/bedrock'}
+                </p>
+                <span className="text-[11px] text-slate-500">Directorio de mundos y binarios BDS</span>
               </div>
               <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] space-y-1">
-                <span className="text-slate-400 font-medium">Túnel Playit.gg</span>
-                <p className="text-cyan-400 font-mono text-xs">UDP Tunnel (19132)</p>
-                <span className="text-[11px] text-slate-500">Enrutamiento dual sin abrir puertos</span>
+                <span className="text-slate-400 font-medium">Túnel Anycast</span>
+                <p className="text-cyan-400 font-mono text-xs">Playit.gg UDP (19132)</p>
+                <span className="text-[11px] text-slate-500">Dual tunnel simultáneo con Java</span>
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-black/30 border border-white/[0.06] space-y-3">
-              <div className="flex items-center justify-between">
+            {/* Version Selection & Installation Card */}
+            <div className="p-5 rounded-xl bg-black/30 border border-white/[0.06] space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-semibold text-white">
-                    {bedrockStatus.isInstalled ? 'Actualizar o Reinstalar Servidor Bedrock' : 'Instalar Servidor Bedrock Oficial'}
+                  <Download className="w-4 h-4 text-blue-400" />
+                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                    Elegir Versión de Bedrock a Instalar
                   </h4>
-                  <InfoTip content="Descarga el binario compilado oficial directamente desde Mojang Azure CDN a /data/bedrock." />
+                  <InfoTip content="Selecciona la versión específica de Bedrock que deseas ejecutar. El servidor descargará automáticamente los binarios nativos oficiales de Mojang (.exe en Windows o binario Linux) y conservará todas tus propiedades y mundos." />
+                </div>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {loadingBedrock
+                    ? 'Consultando catálogo...'
+                    : `${bedrockCatalog?.versions?.length || 0} versiones oficiales disponibles`}
+                </span>
+              </div>
+
+              {/* Version Selector Dropdown & Filter */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 font-mono uppercase">
+                    Versión Oficial Mojang
+                  </label>
+                  <select
+                    value={selectedBedrockVersion}
+                    onChange={(e) => setSelectedBedrockVersion(e.target.value)}
+                    disabled={installingBedrock || loadingBedrock}
+                    className="min-h-[44px] w-full px-3.5 py-2.5 bg-black/50 border border-white/[0.1] rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-blue-500 font-mono cursor-pointer disabled:opacity-50"
+                  >
+                    {(!bedrockCatalog || bedrockCatalog.versions.length === 0) ? (
+                      <option value="1.26.61.1">Cargando versiones oficiales de Mojang...</option>
+                    ) : (
+                      bedrockCatalog.versions.map((item) => (
+                        <option key={item.version} value={item.version}>
+                          Minecraft Bedrock {item.version}
+                          {item.isLatest ? ' ★ (Última Versión Estable Recomendada)' : ''}
+                          {item.isPreview ? ' ⚡ (Vista Previa / Beta)' : ''}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300 font-mono uppercase">
+                    Filtrar Lista
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      type="text"
+                      value={bedrockSearchFilter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setBedrockSearchFilter(val);
+                        // If filter matches a version, select it
+                        if (bedrockCatalog?.versions) {
+                          const match = bedrockCatalog.versions.find((v) =>
+                            v.version.toLowerCase().includes(val.toLowerCase().trim())
+                          );
+                          if (match) setSelectedBedrockVersion(match.version);
+                        }
+                      }}
+                      placeholder="Ej: 1.21, 1.26..."
+                      className="min-h-[44px] w-full pl-8 pr-3 py-2 bg-black/50 border border-white/[0.1] rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Version Details & Actions */}
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="text-xs text-white font-mono flex items-center gap-2">
+                    <span className="text-blue-400 font-bold">Seleccionada:</span>
+                    <span className="font-semibold text-sm">v{selectedBedrockVersion || '1.26.61.1'}</span>
+                    {selectedBedrockVersion === bedrockCatalog?.latest?.version && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                        Estable
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    Origen: Mojang Azure CDN oficial (
+                    {bedrockCatalog?.installed?.platform === 'win32' ? 'Windows bin-win' : 'Linux bin-linux'}
+                    ) · Respaldos de server.properties automáticos
+                  </p>
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleInstallBedrock}
-                  disabled={installingBedrock}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                  disabled={installingBedrock || !selectedBedrockVersion}
+                  className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-blue-600/20 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                 >
                   {installingBedrock ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Instalando Bedrock v{selectedBedrockVersion}...</span>
+                    </>
                   ) : (
-                    <Download className="w-3.5 h-3.5" />
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>
+                        {bedrockStatus.isInstalled
+                          ? `Actualizar a Bedrock v${selectedBedrockVersion}`
+                          : `Descargar e Instalar v${selectedBedrockVersion}`}
+                      </span>
+                    </>
                   )}
-                  <span>{installingBedrock ? 'Descargando e Instalando...' : bedrockStatus.isInstalled ? 'Reinstalar / Actualizar BDS' : 'Descargar e Instalar BDS'}</span>
                 </button>
               </div>
 
-              {bedrockStatus.isInstalled && (
-                <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-400">Estado del servicio:</span>
-                  <span className="text-emerald-400 font-semibold">{bedrockStatus.status.toUpperCase()}</span>
-                </div>
-              )}
+              {/* Advanced: Custom URL Toggle */}
+              <div className="pt-2 border-t border-white/[0.06]">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomUrlInput(!showCustomUrlInput)}
+                  className="text-xs text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-pointer font-mono"
+                >
+                  <span>{showCustomUrlInput ? '▲ Ocultar URL personalizada' : '▼ Ingresar URL de descarga personalizada (.zip)...'}</span>
+                </button>
+
+                {showCustomUrlInput && (
+                  <div className="mt-3 space-y-2">
+                    <input
+                      type="text"
+                      value={customBedrockUrl}
+                      onChange={(e) => setCustomBedrockUrl(e.target.value)}
+                      placeholder="https://www.minecraft.net/bedrockdedicatedserver/bin-win/bedrock-server-..."
+                      className="min-h-[44px] w-full px-3.5 py-2 bg-black/50 border border-white/[0.1] rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Si especificas una URL personalizada, el instalador descargará y extraerá directamente ese archivo .zip.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

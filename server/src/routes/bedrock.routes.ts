@@ -99,12 +99,11 @@ router.put('/properties', (req: Request, res: Response) => {
   }
 });
 
-// Version metadata
+// Version metadata and catalog
 router.get('/versions', async (_req: Request, res: Response) => {
   try {
-    const installed = bedrockVersionsService.getInstalledInfo();
-    const available = await bedrockVersionsService.getAvailableVersion();
-    res.json({ installed, available });
+    const catalog = await bedrockVersionsService.getAvailableVersions();
+    res.json(catalog);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Error al consultar versiones de Bedrock' });
   }
@@ -112,9 +111,9 @@ router.get('/versions', async (_req: Request, res: Response) => {
 
 // Version install / update
 router.post('/install', async (req: Request, res: Response) => {
-  const { downloadUrl } = req.body || {};
+  const { downloadUrl, version } = req.body || {};
   try {
-    const result = await bedrockVersionsService.install(downloadUrl);
+    const result = await bedrockVersionsService.install(downloadUrl, version);
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Error durante la instalación de Bedrock' });

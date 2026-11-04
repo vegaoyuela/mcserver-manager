@@ -1,9 +1,11 @@
 import path from 'path';
 
-export const DEFAULT_SERVER_ROOT = process.env.SERVER_ROOT || '/data';
-export const DEFAULT_FILE_EXPLORER_ROOT = '/data';
+export const DEFAULT_SERVER_ROOT = (process.env.SERVER_ROOT || '/data').trim();
+export const DEFAULT_FILE_EXPLORER_ROOT = (process.env.ALLOWED_ROOTS ? process.env.ALLOWED_ROOTS.split(',')[0] : '/data').trim();
 export const DEFAULT_PORT = parseInt(process.env.PORT || '3000', 10);
 export const PANEL_CONFIG_FILE = process.env.PANEL_CONFIG_PATH || path.join(process.cwd(), 'panel-config.json');
+
+const isWin = process.platform === 'win32';
 
 export const SUBDIRS = {
   SERVER: 'server',
@@ -20,7 +22,7 @@ export const SUBDIRS = {
   SCRIPTS: 'scripts',
   START_SCRIPT: path.join('scripts', 'start.sh'),
   BEDROCK: 'bedrock',
-  BEDROCK_SERVER: path.join('bedrock', 'bedrock_server'),
+  BEDROCK_SERVER: path.join('bedrock', isWin ? 'bedrock_server.exe' : 'bedrock_server'),
   BEDROCK_PROPERTIES: path.join('bedrock', 'server.properties'),
   BEDROCK_PERMISSIONS: path.join('bedrock', 'permissions.json'),
   BEDROCK_ALLOWLIST: path.join('bedrock', 'allowlist.json'),

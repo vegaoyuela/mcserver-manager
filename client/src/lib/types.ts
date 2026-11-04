@@ -254,3 +254,26 @@ export interface BedrockPacksResponse {
   behaviorCount: number;
   activeCount: number;
 }
+
+// Bedrock Dedicated Server Version Catalog
+export interface BedrockInstalledVersionInfo {
+  isInstalled: boolean;
+  version: string | null;
+  binaryFound: boolean;
+  serverDir: string;
+  lastInstalled?: string;
+  platform?: string;
+}
+
+export interface BedrockAvailableVersion {
+  version: string;
+  downloadUrl: string;
+  isPreview?: boolean;
+  isLatest?: boolean;
+}
+
+export interface BedrockVersionsResponse {
+  installed: BedrockInstalledVersionInfo;
+  latest: BedrockAvailableVersion;
+  versions: BedrockAvailableVersion[];
+}

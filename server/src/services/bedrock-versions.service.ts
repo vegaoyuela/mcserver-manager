@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
 import axios from 'axios';
+import AdmZip from 'adm-zip';
 import { ConfigService } from './config.service';
 
 export interface BedrockInstalledInfo {
@@ -10,6 +10,20 @@ export interface BedrockInstalledInfo {
   binaryFound: boolean;
   serverDir: string;
   lastInstalled?: string;
+  platform?: string;
+}
+
+export interface BedrockAvailableVersion {
+  version: string;
+  downloadUrl: string;
+  isPreview?: boolean;
+  isLatest?: boolean;
+}
+
+export interface BedrockVersionsCatalog {
+  installed: BedrockInstalledInfo;
+  latest: BedrockAvailableVersion;
+  versions: BedrockAvailableVersion[];
 }
 
 export class BedrockVersionsService {
@@ -17,6 +31,70 @@ export class BedrockVersionsService {
   private configService: ConfigService;
   private isInstalling = false;
   private logListeners: ((line: string) => void)[] = [];
+  private cachedCatalog: { timestamp: number; data: BedrockVersionsCatalog } | null = null;
+
+  // Fallback official releases in case of network issues with external catalog
+  private static readonly FALLBACK_VERSIONS: string[] = [
+    '1.26.61.1',
+    '1.26.51.1',
+    '1.26.45.1',
+    '1.21.51.02',
+    '1.21.50.07',
+    '1.21.44.01',
+    '1.21.43.01',
+    '1.21.31.04',
+    '1.21.30.03',
+    '1.21.22.01',
+    '1.21.21.01',
+    '1.21.2.02',
+    '1.21.1.03',
+    '1.21.0.03',
+    '1.20.81.01',
+    '1.20.80.05',
+    '1.20.73.01',
+    '1.20.72.01',
+    '1.20.71.01',
+    '1.20.62.02',
+    '1.20.60.23',
+    '1.20.51.01',
+    '1.20.41.02',
+    '1.20.32.03',
+    '1.20.31.01',
+    '1.20.30.02',
+    '1.20.15.01',
+    '1.20.14.02',
+    '1.20.13.01',
+    '1.20.12.01',
+    '1.20.11.01',
+    '1.20.10.01',
+    '1.20.1.02',
+    '1.20.0.23',
+    '1.19.83.01',
+    '1.19.81.01',
+    '1.19.80.02',
+    '1.19.73.02',
+    '1.19.72.01',
+    '1.19.71.01',
+    '1.19.70.02',
+    '1.19.63.01',
+    '1.19.62.01',
+    '1.19.60.20',
+    '1.19.53.01',
+    '1.19.52.01',
+    '1.19.51.01',
+    '1.19.50.07',
+    '1.19.41.01',
+    '1.19.40.02',
+    '1.19.31.01',
+    '1.19.30.04',
+    '1.19.22.01',
+    '1.19.21.01',
+    '1.19.20.02',
+    '1.19.11.01',
+    '1.19.10.03',
+    '1.19.2.02',
+    '1.19.1.01',
+  ];
 
   private constructor() {
     this.configService = ConfigService.getInstance();
@@ -43,11 +121,27 @@ export class BedrockVersionsService {
     }
   }
 
+  /**
+   * Returns current platform binary folder for BDS on Mojang CDN
+   */
+  public getPlatformDir(): 'bin-win' | 'bin-linux' {
+    return process.platform === 'win32' ? 'bin-win' : 'bin-linux';
+  }
+
+  /**
+   * Constructs the official Mojang download URL for a given version and platform
+   */
+  public buildDownloadUrl(version: string): string {
+    const platformDir = this.getPlatformDir();
+    return `https://www.minecraft.net/bedrockdedicatedserver/${platformDir}/bedrock-server-${version}.zip`;
+  }
+
   public getInstalledInfo(): BedrockInstalledInfo {
     const bedrockDir = this.configService.getBedrockDir();
     const linuxBin = path.join(bedrockDir, 'bedrock_server');
     const winBin = path.join(bedrockDir, 'bedrock_server.exe');
-    const binaryFound = fs.existsSync(linuxBin) || fs.existsSync(winBin);
+    const isWin = process.platform === 'win32';
+    const binaryFound = isWin ? fs.existsSync(winBin) : fs.existsSync(linuxBin);
 
     let version: string | null = null;
     let lastInstalled: string | undefined;
@@ -71,42 +165,114 @@ export class BedrockVersionsService {
       binaryFound,
       serverDir: bedrockDir,
       lastInstalled,
+      platform: process.platform,
     };
   }
 
-  public async getAvailableVersion(): Promise<{ version: string; downloadUrl: string }> {
-    const fallbackUrl = 'https://minecraft.azureedge.net/bin-linux/bedrock-server-1.21.51.02.zip';
-    const fallbackVersion = '1.21.51.02';
-
-    try {
-      const response = await axios.get('https://www.minecraft.net/en-us/download/server/bedrock', {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-        timeout: 8000,
-      });
-
-      const html = response.data as string;
-      const match = html.match(/https:\/\/(?:minecraft\.azureedge\.net|www\.minecraft\.net)\/bin-linux\/bedrock-server-([0-9.]+)\.zip/i);
-      if (match && match[0] && match[1]) {
-        return {
-          downloadUrl: match[0],
-          version: match[1],
-        };
-      }
-    } catch (err: any) {
-      this.emitLog(`No se pudo consultar el sitio de Mojang (${err.message}). Usando versión estable de reserva.`);
+  /**
+   * Fetches the complete list of available Bedrock Dedicated Server versions
+   */
+  public async getAvailableVersions(): Promise<BedrockVersionsCatalog> {
+    const now = Date.now();
+    // Cache for 10 minutes
+    if (this.cachedCatalog && now - this.cachedCatalog.timestamp < 10 * 60 * 1000) {
+      return {
+        ...this.cachedCatalog.data,
+        installed: this.getInstalledInfo(),
+      };
     }
 
+    const isWin = process.platform === 'win32';
+    const platformKey = isWin ? 'windows' : 'linux';
+    const installed = this.getInstalledInfo();
+
+    let latestStable = '1.26.61.1';
+    let availableVersions: BedrockAvailableVersion[] = [];
+
+    try {
+      const res = await axios.get('https://raw.githubusercontent.com/Bedrock-OSS/BDS-Versions/main/versions.json', {
+        timeout: 6000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) mcserver-manager',
+        },
+      });
+
+      if (res.data && res.data[platformKey]) {
+        const platformData = res.data[platformKey];
+        if (platformData.stable) {
+          latestStable = platformData.stable;
+        }
+
+        const rawList: string[] = Array.isArray(platformData.versions) ? platformData.versions : [];
+        // Unique and reverse so newest versions come first
+        const unique = Array.from(new Set(rawList)).reverse();
+
+        availableVersions = unique.map((v) => ({
+          version: v,
+          downloadUrl: this.buildDownloadUrl(v),
+          isPreview: false,
+          isLatest: v === latestStable,
+        }));
+
+        // Also add preview version if available
+        if (platformData.preview) {
+          availableVersions.unshift({
+            version: platformData.preview,
+            downloadUrl: this.buildDownloadUrl(platformData.preview),
+            isPreview: true,
+            isLatest: false,
+          });
+        }
+      }
+    } catch (err: any) {
+      this.emitLog(`No se pudo consultar el repositorio de versiones (${err.message}). Usando catálogo local.`);
+    }
+
+    // Fallback if empty or failed
+    if (availableVersions.length === 0) {
+      availableVersions = BedrockVersionsService.FALLBACK_VERSIONS.map((v) => ({
+        version: v,
+        downloadUrl: this.buildDownloadUrl(v),
+        isPreview: false,
+        isLatest: v === latestStable,
+      }));
+    }
+
+    const latestItem: BedrockAvailableVersion = {
+      version: latestStable,
+      downloadUrl: this.buildDownloadUrl(latestStable),
+      isLatest: true,
+    };
+
+    const catalog: BedrockVersionsCatalog = {
+      installed,
+      latest: latestItem,
+      versions: availableVersions,
+    };
+
+    this.cachedCatalog = { timestamp: now, data: catalog };
+    return catalog;
+  }
+
+  /**
+   * Backwards compatible single-version method
+   */
+  public async getAvailableVersion(): Promise<{ version: string; downloadUrl: string }> {
+    const catalog = await this.getAvailableVersions();
     return {
-      downloadUrl: fallbackUrl,
-      version: fallbackVersion,
+      version: catalog.latest.version,
+      downloadUrl: catalog.latest.downloadUrl,
     };
   }
 
-  public async install(targetUrl?: string): Promise<{ success: boolean; version: string; message: string }> {
+  /**
+   * Installs a selected version of Bedrock Dedicated Server.
+   * Accepts either an explicit targetVersion or a direct downloadUrl.
+   */
+  public async install(
+    targetUrl?: string,
+    targetVersion?: string
+  ): Promise<{ success: boolean; version: string; message: string }> {
     if (this.isInstalling) {
       throw new Error('Ya hay una instalación de Bedrock en curso.');
     }
@@ -117,45 +283,52 @@ export class BedrockVersionsService {
 
     try {
       let downloadUrl = targetUrl;
-      let detectedVersion = '1.21.51.02';
+      let detectedVersion = targetVersion || '';
+
+      if (!downloadUrl && targetVersion) {
+        downloadUrl = this.buildDownloadUrl(targetVersion);
+        detectedVersion = targetVersion;
+      }
 
       if (!downloadUrl) {
-        this.emitLog('Buscando versión más reciente de Bedrock Dedicated Server en Mojang...');
+        this.emitLog('Obteniendo versión más reciente de Bedrock Dedicated Server...');
         const latest = await this.getAvailableVersion();
         downloadUrl = latest.downloadUrl;
         detectedVersion = latest.version;
-      } else {
+      } else if (!detectedVersion) {
         const vMatch = downloadUrl.match(/bedrock-server-([0-9.]+)\.zip/i);
         if (vMatch) detectedVersion = vMatch[1];
+        else detectedVersion = 'Personalizada';
       }
 
-      this.emitLog(`Descargando BDS v${detectedVersion} desde ${downloadUrl}...`);
-      const zipPath = path.join(bedrockDir, 'bds_package.zip');
+      this.emitLog(
+        `Descargando BDS v${detectedVersion} para ${process.platform === 'win32' ? 'Windows' : 'Linux'} desde ${downloadUrl}...`
+      );
 
       const response = await axios({
         method: 'GET',
         url: downloadUrl,
-        responseType: 'stream',
+        responseType: 'arraybuffer',
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
-        timeout: 60000,
+        timeout: 90000,
       });
 
-      const writer = fs.createWriteStream(zipPath);
-      response.data.pipe(writer);
+      const buffer = Buffer.from(response.data);
+      this.emitLog(`Descarga completada (${(buffer.length / (1024 * 1024)).toFixed(1)} MB). Preservando configuraciones...`);
 
-      await new Promise<void>((resolve, reject) => {
-        writer.on('finish', () => resolve());
-        writer.on('error', (err) => reject(err));
-      });
-
-      this.emitLog('Descarga completada. Preservando configuraciones existentes...');
-
-      // Backup critical user files before extraction
+      // 1. Backup critical user files before extraction so user settings are NEVER lost
       const preservedFiles: Record<string, string> = {};
-      const filesToPreserve = ['server.properties', 'permissions.json', 'allowlist.json'];
+      const filesToPreserve = [
+        'server.properties',
+        'permissions.json',
+        'allowlist.json',
+        'whitelist.json',
+        'world_resource_packs.json',
+        'world_behavior_packs.json',
+      ];
       for (const file of filesToPreserve) {
         const fullPath = path.join(bedrockDir, file);
         if (fs.existsSync(fullPath)) {
@@ -163,35 +336,45 @@ export class BedrockVersionsService {
         }
       }
 
-      this.emitLog('Extrayendo archivos de Bedrock...');
-      await this.extractZip(zipPath, bedrockDir);
+      // 2. Extract using pure Node AdmZip (eliminates PowerShell Expand-Archive failures & platform friction)
+      this.emitLog('Extrayendo archivos de Bedrock con motor interno...');
+      const zip = new AdmZip(buffer);
+      zip.extractAllTo(bedrockDir, true);
 
-      // Restore preserved configuration files so user settings are NEVER overwritten
+      // 3. Restore preserved user settings
       for (const [file, content] of Object.entries(preservedFiles)) {
         fs.writeFileSync(path.join(bedrockDir, file), content, 'utf-8');
         this.emitLog(`Restaurado archivo de configuración existente: ${file}`);
       }
 
-      // Cleanup package
-      try {
-        fs.unlinkSync(zipPath);
-      } catch {}
-
-      // Make bedrock_server executable on Linux
-      const binPath = path.join(bedrockDir, 'bedrock_server');
-      if (fs.existsSync(binPath)) {
+      // 4. Ensure correct executable permissions on Linux
+      const binLinux = path.join(bedrockDir, 'bedrock_server');
+      if (fs.existsSync(binLinux)) {
         try {
-          fs.chmodSync(binPath, 0o755);
+          fs.chmodSync(binLinux, 0o755);
         } catch {}
       }
 
-      // Save version metadata
+      // 5. Verify that the correct platform binary exists
+      const isWin = process.platform === 'win32';
+      const expectedBin = isWin ? path.join(bedrockDir, 'bedrock_server.exe') : binLinux;
+      if (!fs.existsSync(expectedBin)) {
+        throw new Error(
+          `La extracción finalizó pero no se encontró ${isWin ? 'bedrock_server.exe' : 'bedrock_server'} en ${bedrockDir}. Verifica que el paquete descargado sea compatible con ${process.platform}.`
+        );
+      }
+
+      // 6. Save version metadata
       const meta = {
         version: detectedVersion,
         downloadUrl,
+        platform: process.platform,
         installedAt: new Date().toISOString(),
       };
       fs.writeFileSync(path.join(bedrockDir, 'bedrock-version.json'), JSON.stringify(meta, null, 2), 'utf-8');
+
+      // Invalidate cache so UI updates immediately
+      this.cachedCatalog = null;
 
       this.emitLog(`¡Instalación de Bedrock v${detectedVersion} completada con éxito!`);
       return {
@@ -202,30 +385,5 @@ export class BedrockVersionsService {
     } finally {
       this.isInstalling = false;
     }
-  }
-
-  private async extractZip(zipPath: string, targetDir: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (process.platform === 'win32') {
-        const ps = spawn('powershell.exe', [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${targetDir}' -Force`,
-        ]);
-        ps.on('close', (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`Expand-Archive terminó con código ${code}`));
-        });
-        ps.on('error', reject);
-      } else {
-        const unzip = spawn('unzip', ['-o', '-q', zipPath, '-d', targetDir]);
-        unzip.on('close', (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`unzip terminó con código ${code}`));
-        });
-        unzip.on('error', reject);
-      }
-    });
   }
 }
