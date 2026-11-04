@@ -5,6 +5,7 @@ import { MobileNav } from './MobileNav';
 import { QuickActionsModal } from '../../features/dashboard/QuickActionsModal';
 import { ModUploadStatus } from '../../features/mods/ModUploadStatus';
 import { TelemetryData, PlayitStatus } from '../../lib/types';
+import { AlertCircle } from 'lucide-react';
 
 interface MainLayoutProps {
   currentTab: string;
@@ -32,7 +33,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const controlError = serverActionError || telemetry?.controlError || null;
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-dark-950 text-slate-100">
+    <div className="flex h-screen w-full overflow-hidden bg-[#070a0f] text-slate-100">
       {/* Desktop Sidebar */}
       <Sidebar
         currentTab={currentTab}
@@ -53,10 +54,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           actionPending={serverActionPending}
         />
 
+        {/* Global Control Error Banner */}
         {controlError && (
           <div className="px-4 sm:px-6 pt-3" role="alert">
-            <div className="max-w-7xl mx-auto rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-200">
-              {controlError}
+            <div className="max-w-7xl mx-auto rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-200 flex items-center gap-2.5 shadow-sm">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{controlError}</span>
             </div>
           </div>
         )}

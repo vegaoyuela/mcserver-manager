@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { PlayitStatus } from '../../lib/types';
 import { GlassShimmerButton } from '../../components/rareui/GlassShimmerButton';
 import { RarePlayitIcon } from '../../components/rareui/RareIcons';
+import { InfoTip } from '../../components/common/InfoTip';
 import {
   Play,
   Square,
@@ -15,14 +16,17 @@ import {
   ExternalLink,
   KeyRound,
   ShieldCheck,
+  Smartphone,
+  Server,
 } from 'lucide-react';
 
 export const PlayitView: React.FC = () => {
   const [status, setStatus] = useState<PlayitStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [localPort, setLocalPort] = useState(25565);
+  const [bedrockLocalPort, setBedrockLocalPort] = useState(19132);
   const [configured, setConfigured] = useState(false);
   const [secretPath, setSecretPath] = useState('');
   const [binaryPath, setBinaryPath] = useState<string | null>(null);
@@ -42,6 +46,7 @@ export const PlayitView: React.FC = () => {
       const [data, config] = await Promise.all([api.getPlayitStatus(), api.getPlayitConfig()]);
       setStatus(data);
       setLocalPort(config.localPort);
+      setBedrockLocalPort(config.bedrockLocalPort || 19132);
       setConfigured(config.configured);
       setSecretPath(config.secretPath);
       setBinaryPath(config.binaryPath);
@@ -57,10 +62,11 @@ export const PlayitView: React.FC = () => {
     setConfigSaving(true);
     setError(null);
     try {
-      const result = await api.savePlayitConfig(localPort);
+      const result = await api.savePlayitConfig({ localPort, bedrockLocalPort });
       setLocalPort(result.localPort);
+      setBedrockLocalPort(result.bedrockLocalPort);
     } catch (err: any) {
-      setError(err.message || 'No se pudo guardar el puerto local');
+      setError(err.message || 'No se pudo guardar la configuración de puertos');
     } finally {
       setConfigSaving(false);
     }
@@ -100,88 +106,64 @@ export const PlayitView: React.FC = () => {
     }
   };
 
-  const copyAddress = (domain: string, port: number) => {
-    navigator.clipboard.writeText(`${domain}:${port}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyAddress = (domain: string, port: number, key: string) => {
+    const address = `${domain}:${port}`;
+    navigator.clipboard.writeText(address);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   const isRunning = Boolean(status?.isRunning);
-  const tunnel = status?.tunnels?.[0];
+  const tunnels = status?.tunnels || [];
 
-  useEffect(() => {
-    if (!isRunning) return undefined;
-    const interval = window.setInterval(() => {
-      void loadPlayit(false);
-    }, 3000);
-    return () => window.clearInterval(interval);
-  }, [isRunning]);
-
-  if (loading) {
+  if (loading && !status) {
     return (
-      <div className="glass-panel rounded-2xl p-12 text-center text-slate-400 text-xs">
+      <div className="bg-[#0b0f17] rounded-xl p-12 text-center text-slate-400 text-xs border border-white/[0.08]">
         <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-        <p>Verificando conector Playit.gg...</p>
+        <p>Cargando estado de Playit...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
-      {/* Top Banner */}
-      <div className="glass-panel rounded-2xl p-5 sm:p-6 border border-slate-800 relative overflow-hidden">
-        <div
-          className={`absolute -right-16 -top-16 w-64 h-64 rounded-full blur-3xl pointer-events-none opacity-20 ${
-            isRunning ? 'bg-cyan-500' : 'bg-slate-700'
-          }`}
-        />
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
-          <div className="flex items-start sm:items-center gap-4">
+      {/* Playit Top Banner */}
+      <div className="bg-[#0b0f17] rounded-xl p-5 border border-white/[0.08] relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-center gap-3.5">
             <div
-              className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border ${
+              className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
                 isRunning
-                  ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.25)]'
-                  : 'bg-slate-800 border-slate-700 text-slate-500'
+                  ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
               }`}
             >
-              <RarePlayitIcon size={32} />
+              <RarePlayitIcon size={24} />
             </div>
 
             <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h2 className="text-xl font-bold text-white tracking-tight">Túnel Playit.gg</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-semibold text-white tracking-tight">Túnel Dual Playit.gg</h2>
+                <InfoTip content="Conexión Anycast de baja latencia para Minecraft Java (TCP) y Bedrock (UDP) sin abrir puertos en el router." />
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider font-mono flex items-center gap-1.5 ${
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider font-mono flex items-center gap-1.5 border ${
                     isRunning
-                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                      : 'bg-white/[0.04] text-slate-400 border-white/[0.08]'
                   }`}
                 >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isRunning ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'
-                    }`}
-                  />
-                  <span>{isRunning ? 'TÚNEL EN LÍNEA' : 'TÚNEL DETENIDO'}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`} />
+                  <span>{isRunning ? 'EN LÍNEA (DUAL)' : 'DETENIDO'}</span>
                 </span>
-                {status?.agentId && (
-                  <span className="text-xs text-slate-400 font-mono">Agent: {status.agentId}</span>
-                )}
               </div>
-
-              <p className="text-xs text-slate-400 mt-1">
-                Conexión segura P2P a través de la infraestructura global de Playit.gg sin necesidad de abrir puertos en el router.
-              </p>
             </div>
           </div>
 
-          {/* Action buttons with RareUI GlassShimmerButton */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             {!isRunning ? (
               <GlassShimmerButton
                 variant="cyan"
-                size="md"
+                size="sm"
                 onClick={() => handleAction('start')}
                 disabled={actionLoading}
               >
@@ -216,52 +198,74 @@ export const PlayitView: React.FC = () => {
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Agent configuration stored with the container data */}
-      <div className="glass-panel rounded-2xl p-5 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-800">
-          <div>
-            <h3 className="text-sm font-bold text-white">Configuración del agente</h3>
-            <p className="text-xs text-slate-400 mt-1">La identidad y configuración de Playit se conservan dentro de /data/playit.</p>
+      {/* Agent configuration card */}
+      <div className="bg-[#0b0f17] rounded-xl p-5 border border-white/[0.08] space-y-4">
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/[0.08]">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-white tracking-tight">Configuración del Agente Dual</h3>
+            <InfoTip content="La identidad y asignaciones de puertos de Playit se conservan permanentemente en /data/playit." />
           </div>
-          <span className={`px-2 py-1 rounded-lg text-[10px] font-mono border ${configured ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-amber-300 border-amber-500/30 bg-amber-500/10'}`}>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${
+            configured
+              ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+              : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+          }`}>
             {configured ? 'Agente vinculado' : 'Requiere vinculación'}
           </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
           <label className="space-y-1 text-xs text-slate-400">
-            <span className="block">Puerto local de Minecraft</span>
+            <span className="block font-medium">Puerto local Java (TCP)</span>
             <input
               type="number"
               min={1}
               max={65535}
               value={localPort}
               onChange={(event) => setLocalPort(Number(event.target.value))}
-              className="w-full px-3 py-2 rounded-xl bg-dark-950 border border-slate-700 text-white font-mono focus:outline-none focus:border-cyan-500"
+              className="min-h-[44px] w-full px-3 py-2 rounded-lg bg-[#070a0f] border border-white/[0.1] text-white font-mono focus:outline-none focus:border-cyan-500/50"
             />
           </label>
-          <div className="text-[11px] text-slate-500 font-mono break-all">Identidad: {secretPath || 'se genera al vincular Playit'}</div>
+
+          <label className="space-y-1 text-xs text-slate-400">
+            <span className="block font-medium">Puerto local Bedrock (UDP)</span>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              value={bedrockLocalPort}
+              onChange={(event) => setBedrockLocalPort(Number(event.target.value))}
+              className="min-h-[44px] w-full px-3 py-2 rounded-lg bg-[#070a0f] border border-white/[0.1] text-white font-mono focus:outline-none focus:border-cyan-500/50"
+            />
+          </label>
+
+          <div className="text-[11px] text-slate-400 font-mono break-all pb-2">
+            Identidad: {secretPath || 'se genera al vincular Playit'}
+          </div>
+
           <GlassShimmerButton variant="cyan" size="sm" onClick={handleSaveConfig} disabled={configSaving}>
             {configSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>Guardar puerto</span>
+            <span>Guardar puertos</span>
           </GlassShimmerButton>
         </div>
+
         <p className="text-[11px] text-slate-500 font-mono">Binario: {binaryPath || 'no encontrado en la imagen'}</p>
 
         {!configured ? (
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4 space-y-3">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 text-amber-300">
+              <div className="mt-0.5 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 text-amber-300 shrink-0">
                 <KeyRound className="w-4 h-4" />
               </div>
               <div className="min-w-0">
                 <h4 className="text-xs font-semibold text-amber-100">Vincula este agente con tu cuenta</h4>
-                <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70">
+                <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70 font-normal">
                   El agente está instalado, pero todavía no tiene identidad. Obtén una clave para este servidor en Playit y pégala aquí.
                 </p>
                 <a
@@ -289,7 +293,7 @@ export const PlayitView: React.FC = () => {
                   if (event.key === 'Enter') void handleLink();
                 }}
                 placeholder="Pega aquí tu secret key de Playit"
-                className="min-w-0 flex-1 px-3 py-2 rounded-xl bg-dark-950 border border-amber-500/25 text-white text-xs font-mono placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40"
+                className="min-h-[44px] min-w-0 flex-1 px-3 py-2 rounded-lg bg-[#070a0f] border border-amber-500/25 text-white text-xs font-mono placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
               />
               <GlassShimmerButton
                 variant="cyan"
@@ -332,78 +336,107 @@ export const PlayitView: React.FC = () => {
         )}
       </div>
 
-      {/* Active Tunnel Details Cards */}
-      {tunnel && isRunning ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="glass-panel rounded-2xl p-5 border border-slate-800 space-y-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              Dirección de Conexión Pública
-            </span>
-            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-dark-950 border border-slate-800">
-              <span className="font-mono text-cyan-300 text-xs font-bold truncate">
-                {tunnel.assignedDomain}:{tunnel.publicPort}
-              </span>
-              <button
-                onClick={() => copyAddress(tunnel.assignedDomain, tunnel.publicPort)}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
-                title="Copiar IP"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-400">Esta es la IP que deben poner tus amigos en Minecraft</p>
+      {/* Active Tunnels Section (Dual Java + Bedrock) */}
+      {tunnels.length > 0 && isRunning ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-white font-mono uppercase tracking-wider">
+              Túneles Públicos Activos ({tunnels.length})
+            </h3>
+            <InfoTip content="Direcciones públicas Anycast asignadas. Los jugadores pueden conectarse usando el dominio y puerto público indicado." />
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {tunnels.map((tunnel, idx) => {
+              const isBedrock = tunnel.proto === 'udp' || tunnel.id.includes('bedrock');
+              const key = `${tunnel.assignedDomain}:${tunnel.publicPort}`;
+              return (
+                <div
+                  key={tunnel.id || idx}
+                  className={`bg-[#0b0f17] rounded-xl p-5 border space-y-3 ${
+                    isBedrock ? 'border-blue-500/30' : 'border-emerald-500/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {isBedrock ? (
+                        <Smartphone className="w-4 h-4 text-blue-400" />
+                      ) : (
+                        <Server className="w-4 h-4 text-emerald-400" />
+                      )}
+                      <span className="text-xs font-bold text-white font-mono">
+                        {tunnel.name || (isBedrock ? 'Minecraft Bedrock' : 'Minecraft Java')}
+                      </span>
+                    </div>
 
-          <div className="glass-panel rounded-2xl p-5 border border-slate-800 space-y-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              IP Directa de Anycast
-            </span>
-            <div className="p-2.5 rounded-xl bg-dark-950 border border-slate-800">
-              <span className="font-mono text-slate-200 text-xs">
-                {tunnel.publicAddress}:{tunnel.publicPort} ({tunnel.proto.toUpperCase()})
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">Enrutamiento Anycast optimizado por latencia</p>
-          </div>
+                    <span
+                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                        isBedrock
+                          ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                      }`}
+                    >
+                      {tunnel.proto.toUpperCase()} {tunnel.localPort}
+                    </span>
+                  </div>
 
-          <div className="glass-panel rounded-2xl p-5 border border-slate-800 space-y-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              Mapeo Local (Host)
-            </span>
-            <div className="p-2.5 rounded-xl bg-dark-950 border border-slate-800">
-              <span className="font-mono text-emerald-400 text-xs">
-                127.0.0.1:{tunnel.localPort} (Minecraft Default)
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">Tráfico redirigido al puerto local de Java</p>
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-[#070a0f] border border-white/[0.08]">
+                    <span className="font-mono text-cyan-300 text-xs font-bold truncate">
+                      {tunnel.assignedDomain}:{tunnel.publicPort}
+                    </span>
+                    <button
+                      onClick={() => copyAddress(tunnel.assignedDomain, tunnel.publicPort, key)}
+                      className="min-h-[32px] px-2.5 py-1 rounded-md bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 hover:text-white cursor-pointer flex items-center gap-1 text-xs"
+                      title="Copiar IP pública"
+                    >
+                      {copiedKey === key ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400">Copiado</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copiar</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                    <span>IP Anycast: {tunnel.publicAddress}</span>
+                    <span className="text-slate-500">Local: 127.0.0.1:{tunnel.localPort}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : isRunning ? (
-        <div className="glass-panel rounded-2xl p-6 text-center text-cyan-200 border border-cyan-500/20 text-xs">
-          El agente de Playit está conectado y todavía está esperando los datos del túnel. Actualiza en unos segundos.
+        <div className="bg-[#0b0f17] rounded-xl p-6 text-center text-cyan-200 border border-cyan-500/20 text-xs">
+          El agente de Playit está conectado y esperando registrar los túneles en Anycast. Actualiza en unos segundos.
         </div>
       ) : (
-        <div className="glass-panel rounded-2xl p-6 text-center text-slate-500 border border-slate-800 text-xs">
+        <div className="bg-[#0b0f17] rounded-xl p-6 text-center text-slate-500 border border-white/[0.08] text-xs">
           El proceso de Playit está detenido. Haz clic en "Iniciar Túnel" para conectar el servidor al mundo exterior.
         </div>
       )}
 
       {/* Playit Logs Viewer */}
-      <div className="glass-panel rounded-2xl p-5 border border-slate-800 space-y-3">
+      <div className="bg-[#0b0f17] rounded-xl p-5 border border-white/[0.08] space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Terminal className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+            <h3 className="text-xs font-semibold text-white tracking-tight font-mono">
               Logs del Proceso Playit-CLI
             </h3>
           </div>
           <span className="text-[11px] text-slate-500 font-mono">Últimas líneas capturadas</span>
         </div>
 
-        <div className="p-4 rounded-xl bg-dark-950 border border-slate-800 font-mono text-xs text-slate-300 space-y-1.5 max-h-64 overflow-y-auto leading-relaxed shadow-inner">
+        <div className="p-3.5 rounded-lg bg-[#070a0f] border border-white/[0.08] font-mono text-xs text-slate-300 space-y-1.5 max-h-64 overflow-y-auto leading-relaxed">
           {status?.logs && status.logs.length > 0 ? (
             status.logs.map((line, idx) => (
-              <div key={idx} className="hover:bg-slate-900/50 px-1 py-0.5 rounded">
+              <div key={idx} className="hover:bg-white/[0.02] px-1 py-0.5 rounded">
                 <span className="text-cyan-500">&gt;</span> {line}
               </div>
             ))

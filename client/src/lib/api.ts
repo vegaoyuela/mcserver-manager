@@ -14,6 +14,8 @@ import {
   InstallVersionPayload,
   FilesResponse,
   LocalNeoForgeItem,
+  BedrockStatus,
+  BedrockPacksResponse,
 } from './types';
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -48,7 +50,6 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
         else if (errJson.error) errorMsg = errJson.error;
       } catch {
         if (text && text.trim().length > 0) {
-          // If HTML (like 500 proxy error from Vite), extract a clean message
           if (text.includes('<html') || text.includes('<!doctype html>')) {
             errorMsg = `El servidor backend no está respondiendo (HTTP ${res.status})`;
           } else {
@@ -62,7 +63,6 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     throw new Error(errorMsg);
   }
 
-  // Check if response has JSON content
   const contentType = res.headers.get('content-type');
   if (contentType && contentType.includes('application/json')) {
     return await res.json();
@@ -305,13 +305,23 @@ export const api = {
   getPlayitStatus: async (): Promise<PlayitStatus> => {
     return request('/api/playit/status', { method: 'GET' });
   },
-  getPlayitConfig: async (): Promise<{ configured: boolean; localPort: number; secretPath: string; binaryPath: string | null }> => {
+  getPlayitConfig: async (): Promise<{
+    configured: boolean;
+    localPort: number;
+    bedrockLocalPort: number;
+    secretPath: string;
+    binaryPath: string | null;
+  }> => {
     return request('/api/playit/config', { method: 'GET' });
   },
-  savePlayitConfig: async (localPort: number): Promise<{ success: boolean; localPort: number }> => {
+  savePlayitConfig: async (config: { localPort?: number; bedrockLocalPort?: number }): Promise<{
+    success: boolean;
+    localPort: number;
+    bedrockLocalPort: number;
+  }> => {
     return request('/api/playit/config', {
       method: 'PUT',
-      body: JSON.stringify({ localPort }),
+      body: JSON.stringify(config),
     });
   },
   linkPlayit: async (secret: string): Promise<{ success: boolean; message: string }> => {
@@ -442,5 +452,111 @@ export const api = {
   },
   deleteItem: async (path: string): Promise<{ success: boolean }> => {
     return request(`/api/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+  },
+
+  // Bedrock Dedicated Server (BDS) Endpoints
+  getBedrockStatus: async (): Promise<BedrockStatus> => {
+    return request('/api/bedrock/status', { method: 'GET' });
+  },
+  executeBedrockAction: async (action: 'start' | 'stop' | 'restart'): Promise<{ success: boolean; message: string }> => {
+    const result = await request<{ success: boolean; message: string }>('/api/bedrock/action', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+    if (!result.success) {
+      throw new Error(result.message || 'El servidor Bedrock rechazó la acción solicitada');
+    }
+    return result;
+  },
+  sendBedrockCommand: async (command: string): Promise<{ success: boolean; message?: string }> => {
+    return request('/api/bedrock/command', {
+      method: 'POST',
+      body: JSON.stringify({ command }),
+    });
+  },
+  getBedrockProperties: async (): Promise<{ properties: Record<string, any>; raw: string }> => {
+    return request('/api/bedrock/properties', { method: 'GET' });
+  },
+  saveBedrockProperties: async (properties: Record<string, any>): Promise<{ success: boolean; message: string }> => {
+    return request('/api/bedrock/properties', {
+      method: 'PUT',
+      body: JSON.stringify({ properties }),
+    });
+  },
+  getBedrockVersions: async (): Promise<{ installed: any; available: { version: string; downloadUrl: string } }> => {
+    return request('/api/bedrock/versions', { method: 'GET' });
+  },
+  installBedrockServer: async (downloadUrl?: string): Promise<{ success: boolean; version: string; message: string }> => {
+    return request('/api/bedrock/install', {
+      method: 'POST',
+      body: JSON.stringify({ downloadUrl }),
+    });
+  },
+
+  // Bedrock Packs & Add-ons (RP, BP, MCPACK, MCADDON)
+  getBedrockPacks: async (): Promise<BedrockPacksResponse> => {
+    return request('/api/bedrock/packs', { method: 'GET' });
+  },
+  toggleBedrockPack: async (
+    uuid: string,
+    type: 'resource' | 'behavior',
+    enable: boolean
+  ): Promise<{ success: boolean; isActive: boolean; message: string }> => {
+    return request(`/api/bedrock/packs/${type}/${encodeURIComponent(uuid)}/toggle`, {
+      method: 'PUT',
+      body: JSON.stringify({ enable }),
+    });
+  },
+  deleteBedrockPack: async (
+    type: 'resource' | 'behavior',
+    folderName: string
+  ): Promise<{ success: boolean; message: string }> => {
+    return request(`/api/bedrock/packs/${type}/${encodeURIComponent(folderName)}`, {
+      method: 'DELETE',
+    });
+  },
+  uploadBedrockPacks: async (
+    files: File[],
+    onProgress?: (percent: number) => void
+  ): Promise<{ success: boolean; installedPacks: string[]; message: string }> => {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      for (const file of files) {
+        formData.append('files', file);
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/bedrock/packs/upload');
+      xhr.withCredentials = true;
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('mc_auth_token') : null;
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          onProgress?.(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('No se pudo conectar con el servidor para subir packs'));
+      xhr.onabort = () => reject(new Error('La subida fue cancelada'));
+      xhr.onload = () => {
+        let payload: any = null;
+        try {
+          payload = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          payload = null;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(payload?.error || payload?.message || `Error al subir packs: HTTP ${xhr.status}`));
+          return;
+        }
+
+        onProgress?.(100);
+        resolve(payload || { success: true, installedPacks: [], message: 'Packs subidos con éxito' });
+      };
+
+      xhr.send(formData);
+    });
   },
 };

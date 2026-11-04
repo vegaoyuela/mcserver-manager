@@ -61,6 +61,24 @@ export interface ServerStatusResponse {
   installedVersion?: any;
   controlError?: string | null;
   crashDiagnostic?: CrashDiagnostic | null;
+  bedrock?: BedrockStatus;
+}
+
+export interface BedrockStatus {
+  isInstalled: boolean;
+  isRunning: boolean;
+  pid: number | null;
+  status: 'online' | 'offline' | 'starting' | 'stopping' | 'crashed';
+  uptime: number;
+  version: string | null;
+  port: number;
+  ipv6Port: number;
+  players: {
+    online: number;
+    max: number;
+    list: string[];
+  };
+  lastError?: string | null;
 }
 
 export interface PlayerInfo {

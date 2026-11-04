@@ -7,6 +7,7 @@ import {
 } from '../../lib/types';
 import { AnimatedTabs } from '../../components/rareui/AnimatedTab';
 import { RareVersionsIcon, RareTerminalIcon } from '../../components/rareui/RareIcons';
+import { InfoTip } from '../../components/common/InfoTip';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -18,11 +19,12 @@ import {
   FileBox,
   Check,
   Zap,
-  Info,
   Copy,
   Search,
   Coffee,
   Boxes,
+  Smartphone,
+  Download,
 } from 'lucide-react';
 
 /**
@@ -68,7 +70,7 @@ function getCompatibilityInfo(mcVersion?: string | null) {
 }
 
 export const VersionsView: React.FC = () => {
-  const [engineTab, setEngineTab] = useState<'neoforge' | 'minecraft'>('neoforge');
+  const [engineTab, setEngineTab] = useState<'neoforge' | 'minecraft' | 'bedrock'>('neoforge');
 
   // Local NeoForge on disk
   const [localNeoForge, setLocalNeoForge] = useState<{
@@ -104,10 +106,22 @@ export const VersionsView: React.FC = () => {
   const [copiedConsole, setCopiedConsole] = useState(false);
   const [executingCommand, setExecutingCommand] = useState(false);
 
+  // Bedrock state
+  const [bedrockStatus, setBedrockStatus] = useState<{
+    isInstalled: boolean;
+    version: string | null;
+    status: string;
+    port: number;
+    protocolVersion?: number;
+  }>({ isInstalled: false, version: null, status: 'offline', port: 19132 });
+  const [loadingBedrock, setLoadingBedrock] = useState(false);
+  const [installingBedrock, setInstallingBedrock] = useState(false);
+
   useEffect(() => {
     loadLocalNeoForge();
     loadInstalledMetadata();
     loadMojangReleases();
+    loadBedrockStatus();
   }, []);
 
   const loadLocalNeoForge = async () => {
@@ -143,6 +157,20 @@ export const VersionsView: React.FC = () => {
       console.warn('Could not fetch Mojang versions:', err);
     } finally {
       setLoadingMc(false);
+    }
+  };
+
+  const loadBedrockStatus = async () => {
+    setLoadingBedrock(true);
+    try {
+      const data = await (api as any).getBedrockStatus?.();
+      if (data) {
+        setBedrockStatus(data);
+      }
+    } catch {
+      // Backend bedrock route may not be mounted yet
+    } finally {
+      setLoadingBedrock(false);
     }
   };
 
@@ -270,7 +298,10 @@ export const VersionsView: React.FC = () => {
   const handleInstallVanilla = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!acceptEula) {
-      alert('Debes aceptar el EULA de Mojang para instalar.');
+      setUploadMessage({
+        type: 'error',
+        text: 'Debes aceptar el EULA de Mojang para instalar.',
+      });
       return;
     }
 
@@ -299,6 +330,26 @@ export const VersionsView: React.FC = () => {
     }
   };
 
+  const handleInstallBedrock = async () => {
+    setInstallingBedrock(true);
+    setUploadMessage(null);
+    try {
+      const res = await (api as any).installBedrockServer?.();
+      setUploadMessage({
+        type: 'success',
+        text: res?.message || 'Servidor Bedrock instalado y configurado correctamente en /data/bedrock.',
+      });
+      await loadBedrockStatus();
+    } catch (err: any) {
+      setUploadMessage({
+        type: 'error',
+        text: err.message || 'Error al descargar o instalar Bedrock Dedicated Server',
+      });
+    } finally {
+      setInstallingBedrock(false);
+    }
+  };
+
   // Filtered versions based on search query
   const filteredVersions = useMemo(() => {
     if (!searchQuery.trim()) return localNeoForge.versions;
@@ -316,25 +367,26 @@ export const VersionsView: React.FC = () => {
   );
 
   const tabs = [
-    { id: 'neoforge', label: 'Motor NeoForge (Local & Archivos .JAR)', icon: <RareVersionsIcon size={16} /> },
-    { id: 'minecraft', label: 'Versión de Minecraft (Mojang & Consola)', icon: <Cpu size={16} /> },
+    { id: 'neoforge', label: 'NeoForge', icon: <RareVersionsIcon size={16} /> },
+    { id: 'minecraft', label: 'Vanilla (Mojang)', icon: <Cpu size={16} /> },
+    { id: 'bedrock', label: 'Bedrock (BDS)', icon: <Smartphone size={16} /> },
   ];
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
       {/* Header Banner */}
-      <div className="glass-panel rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-800 shadow-xl">
+      <div className="rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-white/[0.08] bg-[#0b0f17]">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <RareVersionsIcon size={26} />
+            <RareVersionsIcon size={24} />
           </div>
           <div>
-            <h1 className="text-base font-bold text-white tracking-wide">
-              Gestión de Versiones de NeoForge & Minecraft
-            </h1>
-            <p className="text-xs text-slate-400">
-              Detecta versiones instaladas en disco, sube archivos .jar de NeoForge y administra la versión activa
-            </p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-semibold text-white tracking-tight">
+                Versiones & Motores
+              </h1>
+              <InfoTip content="Administra binarios y versiones de ejecución para Minecraft Java (NeoForge / Vanilla) y Bedrock Dedicated Server." />
+            </div>
           </div>
         </div>
 
@@ -342,10 +394,11 @@ export const VersionsView: React.FC = () => {
           onClick={() => {
             loadLocalNeoForge();
             loadInstalledMetadata();
+            loadBedrockStatus();
           }}
-          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center gap-2 transition-colors self-start sm:self-auto cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          className="min-h-[44px] px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 text-xs font-medium border border-white/[0.08] hover:border-white/20 flex items-center gap-2 transition-colors self-start sm:self-auto cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loadingLocal ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${loadingLocal || loadingBedrock ? 'animate-spin' : ''}`} />
           <span>Escanear Raíz</span>
         </button>
       </div>
@@ -355,8 +408,8 @@ export const VersionsView: React.FC = () => {
         <div
           className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs font-medium transition-all ${
             uploadMessage.type === 'success'
-              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
-              : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+              ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-200'
+              : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
           }`}
         >
           <div className="flex items-center gap-2.5">
@@ -369,7 +422,7 @@ export const VersionsView: React.FC = () => {
           </div>
           <button
             onClick={() => setUploadMessage(null)}
-            className="text-slate-300 hover:text-white px-3 py-1 text-xs rounded-lg bg-slate-800/80 hover:bg-slate-700 transition-colors cursor-pointer min-h-[30px] flex items-center"
+            className="text-slate-300 hover:text-white px-3 py-1 text-xs rounded-lg bg-white/[0.06] hover:bg-white/[0.1] transition-colors cursor-pointer min-h-[32px] flex items-center"
           >
             Cerrar
           </button>
@@ -377,23 +430,23 @@ export const VersionsView: React.FC = () => {
       )}
 
       {/* Active Version Overview Card */}
-      <div className="glass-panel rounded-2xl p-5 border border-slate-800 relative overflow-hidden bg-gradient-to-r from-dark-900 via-dark-900/90 to-dark-950">
+      <div className="rounded-2xl p-5 border border-white/[0.08] bg-[#0b0f17]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="flex items-start sm:items-center gap-3.5">
             <div
               className={`w-14 h-14 rounded-2xl flex items-center justify-center border shrink-0 ${
                 localNeoForge.activeVersion || installedInfo?.isInstalled
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                   : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
               }`}
             >
-              <RareVersionsIcon size={30} />
+              <RareVersionsIcon size={28} />
             </div>
 
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-slate-300">
-                  Motor y Versión del Servidor
+                <span className="text-xs font-medium text-slate-400">
+                  Instancia Principal (Java / NeoForge)
                 </span>
               </div>
 
@@ -404,7 +457,7 @@ export const VersionsView: React.FC = () => {
                       <span className="text-emerald-400">
                         Minecraft {localNeoForge.detectedMinecraftVersion || installedInfo?.mcVersion || 'Detectado'}
                       </span>
-                      <span className="text-slate-500">•</span>
+                      <span className="text-slate-600">•</span>
                       <span className="text-cyan-400">
                         NeoForge {localNeoForge.activeVersion || installedInfo?.loaderVersion}
                       </span>
@@ -429,7 +482,7 @@ export const VersionsView: React.FC = () => {
               <div className="text-xs text-slate-400 font-mono mt-2 flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-1.5">
                   <span className="text-slate-500">Directorio:</span>
-                  <code className="text-emerald-300 bg-dark-950 px-2 py-0.5 rounded border border-slate-800">
+                  <code className="text-emerald-300 bg-black/40 px-2 py-0.5 rounded border border-white/[0.08]">
                     {localNeoForge.serverDir || installedInfo?.serverDir || '/data/server'}
                   </code>
                 </div>
@@ -438,12 +491,19 @@ export const VersionsView: React.FC = () => {
                   <Coffee className="w-3 h-3 text-cyan-400" />
                   <span>{activeCompat.java}</span>
                 </div>
+
+                {bedrockStatus.isInstalled && (
+                  <div className="flex items-center gap-1 text-[11px] text-blue-300 bg-blue-950/30 px-2 py-0.5 rounded border border-blue-500/20">
+                    <Smartphone className="w-3 h-3 text-blue-400" />
+                    <span>Bedrock {bedrockStatus.version || 'Instalado'} (UDP {bedrockStatus.port})</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 text-xs font-mono self-start lg:self-auto">
-            <div className="px-3 py-1.5 rounded-xl bg-dark-950 border border-slate-800 text-slate-300">
+            <div className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/[0.08] text-slate-300">
               <span className="text-slate-500 mr-1.5">Lanzador:</span>
               <span className="text-emerald-400 font-bold">
                 {localNeoForge.activeVersion ? `neoforge-${localNeoForge.activeVersion}` : 'start.sh'}
@@ -457,59 +517,29 @@ export const VersionsView: React.FC = () => {
       <AnimatedTabs
         tabs={tabs}
         activeTab={engineTab}
-        onChange={(id) => setEngineTab(id as 'neoforge' | 'minecraft')}
+        onChange={(id) => setEngineTab(id as 'neoforge' | 'minecraft' | 'bedrock')}
         layoutId="versions-tab-selector"
       />
 
       {/* TAB 1: NEOFORGE (DISCO LOCAL & SUBIDA DE JAR) */}
       {engineTab === 'neoforge' && (
         <div className="space-y-6">
-          {/* Guía de Compatibilidad y Ejecución */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-start gap-3">
-            <Info className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
-            <div className="text-xs space-y-1.5">
-              <h3 className="font-semibold text-slate-200">
-                Guía de Compatibilidad y Ejecución de NeoForge
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-slate-400 pt-1">
-                <div className="p-2.5 rounded-lg bg-dark-950/60 border border-slate-800/80">
-                  <span className="text-slate-200 font-medium block">Versión Única Activa</span>
-                  <span className="text-[11px] leading-relaxed text-slate-400">
-                    Pueden coexistir múltiples librerías, pero solo una versión ejecuta el servidor a la vez.
-                  </span>
-                </div>
-                <div className="p-2.5 rounded-lg bg-dark-950/60 border border-slate-800/80">
-                  <span className="text-slate-200 font-medium block">Runtime Java</span>
-                  <span className="text-[11px] leading-relaxed text-slate-400">
-                    Las versiones recientes de NeoForge requieren <strong>OpenJDK 21 LTS</strong>.
-                  </span>
-                </div>
-                <div className="p-2.5 rounded-lg bg-dark-950/60 border border-slate-800/80">
-                  <span className="text-slate-200 font-medium block">Carpeta /mods</span>
-                  <span className="text-[11px] leading-relaxed text-slate-400">
-                    Verifica que tus mods coincidan exactamente con la versión menor de Minecraft.
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Subir archivo .jar de NeoForge con Drag-and-Drop en Toda la Tarjeta */}
           <div
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
-            className={`glass-panel rounded-2xl p-6 border transition-all relative overflow-hidden ${
+            className={`rounded-2xl p-6 border transition-all relative overflow-hidden bg-[#0b0f17] ${
               isDraggingOver
-                ? 'border-emerald-400 bg-emerald-950/30 shadow-[0_0_35px_rgba(16,185,129,0.25)] ring-2 ring-emerald-400/40'
-                : 'border-slate-800'
+                ? 'border-emerald-400 ring-2 ring-emerald-400/40 bg-emerald-950/20'
+                : 'border-white/[0.08]'
             }`}
           >
             {/* Overlay visual cuando se arrastra un archivo */}
             {isDraggingOver && (
-              <div className="absolute inset-0 bg-dark-950/85 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-3 border-2 border-dashed border-emerald-400 rounded-2xl pointer-events-none animate-fadeIn">
-                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400 scale-105 transition-transform duration-300 shadow-[0_0_25px_rgba(16,185,129,0.3)]">
+              <div className="absolute inset-0 bg-[#0b0f17]/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-3 border-2 border-dashed border-emerald-400 rounded-2xl pointer-events-none animate-fadeIn">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400 scale-105 transition-transform duration-300">
                   <Upload className="w-8 h-8" />
                 </div>
                 <div className="text-center">
@@ -522,14 +552,12 @@ export const VersionsView: React.FC = () => {
             )}
 
             <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Upload className="w-4 h-4 text-emerald-400" />
                   <span>Subir Archivo .JAR de NeoForge</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Sube un archivo instalador oficial (ej. <code>neoforge-21.1.20-installer.jar</code>) o jar ejecutable para activarlo.
-                </p>
+                <InfoTip content="Sube instaladores oficiales (-installer.jar) o ejecutables de servidor para instalarlos y activarlos automáticamente." />
               </div>
             </div>
 
@@ -543,10 +571,10 @@ export const VersionsView: React.FC = () => {
                   fileInputRef.current?.click();
                 }
               }}
-              className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-950 ${
+              className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0f17] ${
                 uploadingJar
                   ? 'border-emerald-500 bg-emerald-950/20'
-                  : 'border-slate-700/80 hover:border-emerald-500/70 hover:bg-slate-900/40 bg-dark-950/40'
+                  : 'border-white/[0.12] hover:border-emerald-500/70 hover:bg-white/[0.02] bg-black/20'
               }`}
             >
               <input
@@ -570,15 +598,15 @@ export const VersionsView: React.FC = () => {
                 <p className="text-xs font-semibold text-slate-200">
                   {uploadingJar && uploadProgress
                     ? `Subiendo "${uploadProgress.fileName}" (${uploadProgress.size})...`
-                    : 'Haz clic para seleccionar o arrastra un archivo .jar a esta tarjeta'}
+                    : 'Arrastra un instalador .jar o haz clic para subir'}
                 </p>
                 <p className="text-[11px] text-slate-400 font-mono">
-                  Admite archivos instaladores (-installer.jar) o binarios ejecutables de servidor
+                  Admite instaladores (-installer.jar) o binarios ejecutables
                 </p>
               </div>
 
               {!uploadingJar && (
-                <span className="px-3.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-medium hover:bg-emerald-500/20 transition-colors">
+                <span className="min-h-[44px] px-4 py-2.5 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-xs font-mono font-medium hover:bg-emerald-500/20 transition-colors flex items-center">
                   Seleccionar Archivo .jar
                 </span>
               )}
@@ -586,16 +614,14 @@ export const VersionsView: React.FC = () => {
           </div>
 
           {/* Versiones de NeoForge detectadas en la raíz del servidor */}
-          <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
+          <div className="rounded-2xl p-6 border border-white/[0.08] bg-[#0b0f17] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <HardDrive className="w-4 h-4 text-emerald-400" />
-                  <span>Versiones de NeoForge Detectadas en la Raíz</span>
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-semibold text-white">
+                  Versiones de NeoForge Detectadas
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Librerías encontradas físicamente en <code>server/libraries/net/neoforged/neoforge/</code> o en la raíz
-                </p>
+                <InfoTip content="Librerías encontradas en server/libraries/net/neoforged/neoforge/ o binarios en la raíz." />
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -607,11 +633,11 @@ export const VersionsView: React.FC = () => {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Filtrar versión..."
-                    className="pl-8 pr-3 py-1.5 bg-dark-950 border border-slate-700/80 rounded-lg text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-36 sm:w-48"
+                    className="min-h-[44px] pl-8 pr-3 py-1.5 bg-black/40 border border-white/[0.1] rounded-lg text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-36 sm:w-48"
                   />
                 </div>
 
-                <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-dark-950 text-slate-300 border border-slate-800 shrink-0">
+                <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-white/[0.04] text-slate-300 border border-white/[0.08] shrink-0">
                   {filteredVersions.length} de {localNeoForge.versions.length}
                 </span>
               </div>
@@ -623,7 +649,7 @@ export const VersionsView: React.FC = () => {
                 <span className="text-xs font-mono">Escaneando directorio del servidor...</span>
               </div>
             ) : filteredVersions.length === 0 ? (
-              <div className="p-8 rounded-xl bg-dark-950/60 border border-slate-800 text-center space-y-2">
+              <div className="p-8 rounded-xl bg-black/20 border border-white/[0.06] text-center space-y-2">
                 <RareVersionsIcon size={32} className="mx-auto text-slate-600" />
                 <p className="text-xs text-slate-300 font-medium">
                   {searchQuery ? `No se encontraron versiones coincidentes con "${searchQuery}".` : 'No se encontraron versiones de NeoForge instaladas todavía.'}
@@ -644,14 +670,14 @@ export const VersionsView: React.FC = () => {
                       key={ver.version}
                       className={`p-4 rounded-xl border transition-all flex flex-col justify-between gap-4 ${
                         isActive
-                          ? 'bg-emerald-950/30 border-emerald-500/50 shadow-lg shadow-emerald-950/40'
-                          : 'bg-dark-950/60 border-slate-800 hover:border-slate-700'
+                          ? 'bg-emerald-950/20 border-emerald-500/40'
+                          : 'bg-black/30 border-white/[0.06] hover:border-white/20'
                       }`}
                     >
                       <div className="space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-bold text-white font-mono">
+                            <span className="text-sm font-semibold text-white font-mono">
                               NeoForge {ver.version}
                             </span>
                             {ver.mcVersion && (
@@ -660,14 +686,14 @@ export const VersionsView: React.FC = () => {
                               </span>
                             )}
                             {isActive && (
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold flex items-center gap-1">
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-semibold flex items-center gap-1">
                                 <Check className="w-3 h-3 text-emerald-400" />
                                 ACTIVA
                               </span>
                             )}
                           </div>
 
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-dark-900 border border-slate-800 text-slate-400">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-slate-400">
                             {ver.source === 'libraries' ? 'Librería Instalada' : 'Archivo .jar'}
                           </span>
                         </div>
@@ -679,7 +705,7 @@ export const VersionsView: React.FC = () => {
                             {itemCompat.java}
                           </span>
                           {ver.mcVersion && (
-                            <span className="px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-slate-300 flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-slate-300 flex items-center gap-1">
                               <Boxes className="w-3 h-3 text-emerald-400" />
                               Mods {ver.mcVersion}
                             </span>
@@ -688,7 +714,7 @@ export const VersionsView: React.FC = () => {
 
                         <div className="space-y-1 text-[11px] font-mono text-slate-400">
                           {ver.hasUnixArgs && (
-                            <div className="flex items-center gap-1.5 text-emerald-400/90">
+                            <div className="flex items-center gap-1.5 text-emerald-400">
                               <CheckCircle2 className="w-3 h-3" />
                               <span>unix_args.txt disponible para arranque</span>
                             </div>
@@ -706,7 +732,7 @@ export const VersionsView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="pt-2.5 border-t border-white/[0.08] flex items-center justify-between">
                         <span className="text-[11px] text-slate-400">
                           {isActive ? 'En ejecución por start.sh' : 'Inactiva (Lista para conmutar)'}
                         </span>
@@ -720,7 +746,7 @@ export const VersionsView: React.FC = () => {
                           <button
                             onClick={() => handleActivateNeoForge(ver.version)}
                             disabled={isBusy}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-950 cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                            className="min-h-[44px] px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                           >
                             {isBusy ? (
                               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -740,26 +766,24 @@ export const VersionsView: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: MINECRAFT & COMANDOS DE CONSOLA */}
+      {/* TAB 2: MINECRAFT JAVA VANILLA & COMANDOS DE CONSOLA */}
       {engineTab === 'minecraft' && (
         <div className="space-y-6">
           {/* Comprobador de versión por Consola (/version) */}
-          <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
+          <div className="rounded-2xl p-6 border border-white/[0.08] bg-[#0b0f17] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  <span>Consultar Versión en Consola de Minecraft</span>
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-semibold text-white">
+                  Consultar Versión en Consola
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Ejecuta comandos de consulta directamente en la consola interactiva del servidor en vivo
-                </p>
+                <InfoTip content="Ejecuta /version en vivo para comprobar la compilación y motor exactos del proceso." />
               </div>
 
               <button
                 onClick={handleRunConsoleVersionCommand}
                 disabled={executingCommand}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
               >
                 {executingCommand ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -771,14 +795,14 @@ export const VersionsView: React.FC = () => {
             </div>
 
             {consoleOutput && (
-              <div className="p-3.5 rounded-xl bg-dark-950 border border-slate-800 font-mono text-xs text-emerald-400 flex items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.08] font-mono text-xs text-emerald-400 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 overflow-hidden">
                   <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
                   <span className="truncate">{consoleOutput}</span>
                 </div>
                 <button
                   onClick={handleCopyConsole}
-                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-sans flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+                  className="min-h-[32px] px-2.5 py-1 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 text-[11px] font-sans flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
                   title="Copiar salida de consola"
                 >
                   {copiedConsole ? (
@@ -798,16 +822,14 @@ export const VersionsView: React.FC = () => {
           </div>
 
           {/* Versiones oficiales de Mojang en la Web */}
-          <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-5">
+          <div className="rounded-2xl p-6 border border-white/[0.08] bg-[#0b0f17] space-y-5">
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-emerald-400" />
-                  <span>Versiones Oficiales de Mojang (Vanilla)</span>
+              <div className="flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-semibold text-white">
+                  Versiones Oficiales Mojang (Vanilla)
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Obtenidas en tiempo real desde la API de Mojang. Puedes instalar una versión Vanilla oficial como alternativa limpia.
-                </p>
+                <InfoTip content="Descargadas en tiempo real desde Mojang. Permite instalar una versión limpia sin mods." />
               </div>
 
               <span className="text-xs font-mono text-slate-400">
@@ -818,13 +840,13 @@ export const VersionsView: React.FC = () => {
             <form onSubmit={handleInstallVanilla} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 font-mono uppercase">
+                  <label className="text-xs font-semibold text-slate-300 font-mono uppercase">
                     Versión de Minecraft Oficial
                   </label>
                   <select
                     value={selectedVanillaVersion}
                     onChange={(e) => setSelectedVanillaVersion(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-dark-950 border border-slate-700/80 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 font-mono cursor-pointer"
+                    className="min-h-[44px] w-full px-3.5 py-2.5 bg-black/40 border border-white/[0.1] rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 font-mono cursor-pointer"
                   >
                     {mcReleases.map((v) => (
                       <option key={v.id} value={v.id}>
@@ -836,7 +858,7 @@ export const VersionsView: React.FC = () => {
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-300 font-mono uppercase">
+                    <label className="text-xs font-semibold text-slate-300 font-mono uppercase">
                       Asignación de Memoria RAM
                     </label>
                     {/* Presets rápidos de RAM */}
@@ -847,7 +869,7 @@ export const VersionsView: React.FC = () => {
                           setRamInitial('2048M');
                           setRamMax('4096M');
                         }}
-                        className="px-1.5 py-0.5 rounded bg-dark-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 cursor-pointer"
+                        className="min-h-[28px] px-2 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 border border-white/[0.06] cursor-pointer"
                       >
                         2G/4G
                       </button>
@@ -857,7 +879,7 @@ export const VersionsView: React.FC = () => {
                           setRamInitial('4096M');
                           setRamMax('8192M');
                         }}
-                        className="px-1.5 py-0.5 rounded bg-dark-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 cursor-pointer"
+                        className="min-h-[28px] px-2 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-emerald-400 border border-emerald-500/30 cursor-pointer"
                       >
                         4G/8G
                       </button>
@@ -867,7 +889,7 @@ export const VersionsView: React.FC = () => {
                           setRamInitial('8192M');
                           setRamMax('12288M');
                         }}
-                        className="px-1.5 py-0.5 rounded bg-dark-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 cursor-pointer"
+                        className="min-h-[28px] px-2 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 border border-white/[0.06] cursor-pointer"
                       >
                         8G/12G
                       </button>
@@ -880,26 +902,26 @@ export const VersionsView: React.FC = () => {
                       value={ramInitial}
                       onChange={(e) => setRamInitial(e.target.value)}
                       placeholder="4096M"
-                      className="px-3 py-2 bg-dark-950 border border-slate-700/80 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      className="min-h-[44px] px-3 py-2 bg-black/40 border border-white/[0.1] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
                     />
                     <input
                       type="text"
                       value={ramMax}
                       onChange={(e) => setRamMax(e.target.value)}
                       placeholder="8192M"
-                      className="px-3 py-2 bg-dark-950 border border-slate-700/80 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      className="min-h-[44px] px-3 py-2 bg-black/40 border border-white/[0.1] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-dark-950/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <label className="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={acceptEula}
                     onChange={(e) => setAcceptEula(e.target.checked)}
-                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 focus:ring-offset-0 bg-dark-900 border-slate-700 cursor-pointer"
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-0 focus:ring-offset-0 bg-black/50 border-white/[0.2] cursor-pointer"
                   />
                   <span>Acepto el Contrato de Licencia de Usuario Final (EULA) de Mojang</span>
                 </label>
@@ -907,12 +929,94 @@ export const VersionsView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={installingVanilla || !selectedVanillaVersion || !acceptEula}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all disabled:opacity-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 >
                   {installingVanilla ? 'Descargando Vanilla...' : `Instalar Vanilla ${selectedVanillaVersion}`}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: MINECRAFT BEDROCK (BDS OFICIAL) */}
+      {engineTab === 'bedrock' && (
+        <div className="space-y-6">
+          <div className="rounded-2xl p-6 border border-white/[0.08] bg-[#0b0f17] space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Smartphone size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-white">
+                      Minecraft Bedrock Dedicated Server (BDS)
+                    </h3>
+                    <InfoTip content="Servidor oficial Mojang en C++ nativo para Windows 10/11, móviles y consolas." />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold border ${
+                  bedrockStatus.isInstalled
+                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                    : 'bg-slate-800 border-white/[0.08] text-slate-400'
+                }`}>
+                  {bedrockStatus.isInstalled ? 'INSTALADO' : 'NO INSTALADO'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] space-y-1">
+                <span className="text-slate-400 font-medium">Puerto de Red</span>
+                <p className="text-white font-mono font-semibold text-sm">UDP {bedrockStatus.port || 19132}</p>
+                <span className="text-[11px] text-slate-500">Protocolo nativo Bedrock RakNet</span>
+              </div>
+              <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] space-y-1">
+                <span className="text-slate-400 font-medium">Ruta de Instalación</span>
+                <p className="text-emerald-400 font-mono text-xs">/data/bedrock</p>
+                <span className="text-[11px] text-slate-500">Persiste en volumen Docker aislado</span>
+              </div>
+              <div className="p-3 rounded-xl bg-black/40 border border-white/[0.06] space-y-1">
+                <span className="text-slate-400 font-medium">Túnel Playit.gg</span>
+                <p className="text-cyan-400 font-mono text-xs">UDP Tunnel (19132)</p>
+                <span className="text-[11px] text-slate-500">Enrutamiento dual sin abrir puertos</span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-black/30 border border-white/[0.06] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-semibold text-white">
+                    {bedrockStatus.isInstalled ? 'Actualizar o Reinstalar Servidor Bedrock' : 'Instalar Servidor Bedrock Oficial'}
+                  </h4>
+                  <InfoTip content="Descarga el binario compilado oficial directamente desde Mojang Azure CDN a /data/bedrock." />
+                </div>
+
+                <button
+                  onClick={handleInstallBedrock}
+                  disabled={installingBedrock}
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                >
+                  {installingBedrock ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>{installingBedrock ? 'Descargando e Instalando...' : bedrockStatus.isInstalled ? 'Reinstalar / Actualizar BDS' : 'Descargar e Instalar BDS'}</span>
+                </button>
+              </div>
+
+              {bedrockStatus.isInstalled && (
+                <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono">
+                  <span className="text-slate-400">Estado del servicio:</span>
+                  <span className="text-emerald-400 font-semibold">{bedrockStatus.status.toUpperCase()}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

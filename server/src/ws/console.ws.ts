@@ -6,11 +6,14 @@ import jwt from 'jsonwebtoken';
 import { ConfigService } from '../services/config.service';
 import { ProcessService } from '../services/process.service';
 import { VersionsService } from '../services/versions.service';
+import { BedrockProcessService } from '../services/bedrock-process.service';
+import { BedrockVersionsService } from '../services/bedrock-versions.service';
 import { SUBDIRS } from '../config/constants';
 
 interface ConsoleMessage {
   type: 'command' | 'ping';
   command?: string;
+  target?: 'java' | 'bedrock';
 }
 
 export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
@@ -18,15 +21,28 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
   const configService = ConfigService.getInstance();
   const processService = ProcessService.getInstance();
   const versionsService = VersionsService.getInstance();
+  const bedrockProcessService = BedrockProcessService.getInstance();
+  const bedrockVersionsService = BedrockVersionsService.getInstance();
 
   // Forward version installer logs to all connected WebSocket clients
   versionsService.onLog((logLine) => {
-    broadcast(wss, JSON.stringify({ type: 'installer', data: logLine }));
+    broadcast(wss, JSON.stringify({ type: 'installer', server: 'java', data: logLine }));
   });
 
-  // Track file read offset for tailing latest.log
+  bedrockVersionsService.onLog((logLine) => {
+    broadcast(wss, JSON.stringify({ type: 'installer', server: 'bedrock', data: logLine }));
+  });
+
+  // Bedrock live process logs
+  bedrockProcessService.onLog((logChunk) => {
+    const lines = logChunk.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    for (const line of lines) {
+      broadcast(wss, JSON.stringify({ type: 'log', server: 'bedrock', data: line }));
+    }
+  });
+
+  // Track file read offset for tailing Java latest.log
   let lastLogSize = 0;
-  let isWatching = false;
 
   const getLogPath = () => configService.resolvePath(SUBDIRS.LATEST_LOG);
 
@@ -40,7 +56,6 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
     try {
       const stats = fs.statSync(logPath);
       if (stats.size < lastLogSize) {
-        // Log file was rotated or truncated
         lastLogSize = 0;
       }
 
@@ -60,7 +75,7 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
           const lines = buffer.split(/\r?\n/);
           for (const line of lines) {
             if (line.trim()) {
-              broadcast(wss, JSON.stringify({ type: 'log', data: line }));
+              broadcast(wss, JSON.stringify({ type: 'log', server: 'java', data: line }));
             }
           }
         });
@@ -77,9 +92,8 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
     const config = configService.getConfig();
 
     // Authenticate client
-    let authenticated = !config.initialSetupDone; // if setup not done, allow connection
+    let authenticated = !config.initialSetupDone;
     if (!authenticated) {
-      // Extract from cookie or URL query ?token=...
       const url = new URL(req.url || '', `http://${req.headers.host}`);
       const queryToken = url.searchParams.get('token');
 
@@ -105,9 +119,9 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
     }
 
     // Send initial greeting
-    ws.send(JSON.stringify({ type: 'log', data: '§a[MCServer Manager] Console stream connected.' }));
+    ws.send(JSON.stringify({ type: 'log', server: 'system', data: '§a[MCServer Manager] Dual Console stream connected (Java & Bedrock).' }));
 
-    // Send the last 80 lines of latest.log if exists
+    // Send the last 80 lines of Java latest.log if exists
     const logPath = getLogPath();
     if (fs.existsSync(logPath)) {
       try {
@@ -115,7 +129,7 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
         const allLines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
         const recent = allLines.slice(-80);
         for (const line of recent) {
-          ws.send(JSON.stringify({ type: 'log', data: line }));
+          ws.send(JSON.stringify({ type: 'log', server: 'java', data: line }));
         }
         const stats = fs.statSync(logPath);
         lastLogSize = stats.size;
@@ -133,25 +147,37 @@ export function setupConsoleWebSocket(server: HttpServer): WebSocketServer {
 
         if (parsed.type === 'command' && parsed.command) {
           const cmd = parsed.command.trim();
-          ws.send(JSON.stringify({ type: 'log', data: `§7> ${cmd}` }));
+          const target = parsed.target || 'java';
 
-          const sent = processService.sendCommand(cmd);
-          if (!sent) {
-            ws.send(
-              JSON.stringify({
-                type: 'log',
-                data: '§c[Error] El servidor está detenido o todavía no acepta comandos.',
-              })
-            );
+          ws.send(JSON.stringify({ type: 'log', server: target, data: `§7[${target.toUpperCase()}] > ${cmd}` }));
+
+          if (target === 'bedrock') {
+            const sent = bedrockProcessService.sendCommand(cmd);
+            if (!sent) {
+              ws.send(
+                JSON.stringify({
+                  type: 'log',
+                  server: 'bedrock',
+                  data: '§c[Error] El servidor Bedrock está detenido o no acepta comandos.',
+                })
+              );
+            }
+          } else {
+            const sent = processService.sendCommand(cmd);
+            if (!sent) {
+              ws.send(
+                JSON.stringify({
+                  type: 'log',
+                  server: 'java',
+                  data: '§c[Error] El servidor Java está detenido o todavía no acepta comandos.',
+                })
+              );
+            }
           }
         }
       } catch (err: any) {
         ws.send(JSON.stringify({ type: 'error', data: err.message }));
       }
-    });
-
-    ws.on('close', () => {
-      // Cleaned up automatically
     });
   });
 

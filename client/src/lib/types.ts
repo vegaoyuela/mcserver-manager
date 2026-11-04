@@ -8,6 +8,23 @@ export interface Player {
   connectedAt?: string;
 }
 
+export interface BedrockStatus {
+  isInstalled: boolean;
+  isRunning: boolean;
+  pid: number | null;
+  status: ServerState;
+  uptime: number;
+  version: string | null;
+  port: number;
+  ipv6Port: number;
+  players: {
+    online: number;
+    max: number;
+    list: string[];
+  };
+  lastError?: string | null;
+}
+
 export interface TelemetryData {
   isRunning: boolean;
   state: ServerState;
@@ -54,6 +71,7 @@ export interface TelemetryData {
     missingDependencies?: string[];
     details?: string[];
   } | null;
+  bedrock?: BedrockStatus;
 }
 
 export interface OpPlayer {
@@ -111,6 +129,7 @@ export interface PlayitStatus {
   binaryPath?: string | null;
   secretPath?: string;
   localPort?: number;
+  bedrockLocalPort?: number;
   lastError?: string | null;
   logs: string[];
 }
@@ -122,6 +141,7 @@ export interface PathValidationStatus {
   logs: boolean;
   playit: boolean;
   scripts: boolean;
+  bedrock?: boolean;
 }
 
 export interface PanelSettings {
@@ -144,7 +164,7 @@ export interface UserSession {
 }
 
 // Version & Loader Types
-export type ServerEngineType = 'neoforge' | 'vanilla';
+export type ServerEngineType = 'neoforge' | 'vanilla' | 'bedrock';
 
 export interface MinecraftRelease {
   id: string;
@@ -208,4 +228,29 @@ export interface LocalNeoForgeItem {
   jarFileName?: string;
   source: string;
   modified?: string;
+}
+
+// Bedrock Packs & Add-ons (RP, BP, MCPACK)
+export interface BedrockPackInfo {
+  id: string;
+  uuid: string;
+  name: string;
+  description: string;
+  version: string;
+  type: 'resource' | 'behavior';
+  folderName: string;
+  sizeBytes: number;
+  sizeFormatted: string;
+  iconBase64?: string;
+  isActiveInWorld: boolean;
+  minEngineVersion?: string;
+  installedAt?: string;
+}
+
+export interface BedrockPacksResponse {
+  packs: BedrockPackInfo[];
+  total: number;
+  resourceCount: number;
+  behaviorCount: number;
+  activeCount: number;
 }

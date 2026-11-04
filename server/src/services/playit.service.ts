@@ -8,9 +8,10 @@ import { PlayitStatus, PlayitTunnel } from '../types';
 
 interface PlayitManagerConfig {
   localPort: number;
+  bedrockLocalPort?: number;
 }
 
-/** Runs the Playit agent next to Minecraft and keeps its state in /data. */
+/** Runs the Playit agent next to Minecraft (Java + Bedrock) and keeps its state in /data. */
 export class PlayitService {
   private static instance: PlayitService;
   private configService: ConfigService;
@@ -18,7 +19,7 @@ export class PlayitService {
   private recentLogs: string[] = [];
   private readonly maxLogs = 200;
   private publicAddress = '';
-  private tunnels: PlayitTunnel[] = [];
+  private tunnelsMap: Map<string, PlayitTunnel> = new Map();
   private lastError: string | null = null;
   private ipcRequestId = 0;
 
@@ -43,7 +44,7 @@ export class PlayitService {
     return path.join(this.getPlayitDir(), 'manager.json');
   }
 
-  private getLocalPort(): number {
+  public getLocalPort(): number {
     try {
       const configPath = this.getManagerConfigPath();
       if (fs.existsSync(configPath)) {
@@ -57,29 +58,68 @@ export class PlayitService {
     return Number.isInteger(fromEnv) && fromEnv >= 1 && fromEnv <= 65535 ? fromEnv : 25565;
   }
 
+  public getBedrockLocalPort(): number {
+    try {
+      const configPath = this.getManagerConfigPath();
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<PlayitManagerConfig>;
+        if (Number.isInteger(config.bedrockLocalPort) && Number(config.bedrockLocalPort) >= 1 && Number(config.bedrockLocalPort) <= 65535) {
+          return Number(config.bedrockLocalPort);
+        }
+      }
+    } catch {}
+    const fromEnv = Number(process.env.PLAYIT_BEDROCK_PORT || 19132);
+    return Number.isInteger(fromEnv) && fromEnv >= 1 && fromEnv <= 65535 ? fromEnv : 19132;
+  }
+
   public getConfig(): {
     configured: boolean;
     localPort: number;
+    bedrockLocalPort: number;
     secretPath: string;
     binaryPath: string | null;
   } {
     return {
       configured: fs.existsSync(this.getSecretPath()),
       localPort: this.getLocalPort(),
+      bedrockLocalPort: this.getBedrockLocalPort(),
       secretPath: this.getSecretPath(),
       binaryPath: this.findPlayitBinary(),
     };
   }
 
-  public saveConfig(input: { localPort?: number }): { success: boolean; localPort: number } {
-    const localPort = Number(input.localPort);
-    if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
-      throw new Error('El puerto local debe ser un número entre 1 y 65535');
+  public saveConfig(input: { localPort?: number; bedrockLocalPort?: number }): {
+    success: boolean;
+    localPort: number;
+    bedrockLocalPort: number;
+  } {
+    let currentLocalPort = this.getLocalPort();
+    let currentBedrockPort = this.getBedrockLocalPort();
+
+    if (input.localPort !== undefined) {
+      const port = Number(input.localPort);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error('El puerto local Java debe ser un número entre 1 y 65535');
+      }
+      currentLocalPort = port;
     }
+
+    if (input.bedrockLocalPort !== undefined) {
+      const bPort = Number(input.bedrockLocalPort);
+      if (!Number.isInteger(bPort) || bPort < 1 || bPort > 65535) {
+        throw new Error('El puerto local Bedrock debe ser un número entre 1 y 65535');
+      }
+      currentBedrockPort = bPort;
+    }
+
     const dir = this.getPlayitDir();
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this.getManagerConfigPath(), JSON.stringify({ localPort }, null, 2) + '\n', 'utf8');
-    return { success: true, localPort };
+    fs.writeFileSync(
+      this.getManagerConfigPath(),
+      JSON.stringify({ localPort: currentLocalPort, bedrockLocalPort: currentBedrockPort }, null, 2) + '\n',
+      'utf8'
+    );
+    return { success: true, localPort: currentLocalPort, bedrockLocalPort: currentBedrockPort };
   }
 
   public getStatus(): PlayitStatus {
@@ -88,7 +128,7 @@ export class PlayitService {
     return {
       isRunning,
       pid: this.playitProcess?.pid || null,
-      tunnels: this.tunnels,
+      tunnels: Array.from(this.tunnelsMap.values()),
       publicAddress: this.publicAddress || undefined,
       binaryPath: config.binaryPath,
       secretPath: config.secretPath,
@@ -124,7 +164,11 @@ export class PlayitService {
 
     const child = spawn(binary, ['--secret-path', this.getSecretPath()], {
       cwd: playitDir,
-      env: { ...process.env, PLAYIT_LOCAL_PORT: String(this.getLocalPort()) },
+      env: {
+        ...process.env,
+        PLAYIT_LOCAL_PORT: String(this.getLocalPort()),
+        PLAYIT_BEDROCK_PORT: String(this.getBedrockLocalPort()),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.playitProcess = child;
@@ -144,10 +188,6 @@ export class PlayitService {
     return { success: true, message: 'Agente Playit iniciado' };
   }
 
-  /**
-   * Provisions the Playit identity through the agent's local IPC socket.
-   * The secret is intentionally never logged or persisted by the manager.
-   */
   public async provisionSecret(secret: string): Promise<{ success: boolean; message: string }> {
     const normalizedSecret = secret.trim();
     if (normalizedSecret.length < 8) {
@@ -174,8 +214,6 @@ export class PlayitService {
         return { success: true, message: 'Agente Playit vinculado correctamente' };
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        // A response-level error is definitive (for example, an invalid key).
-        // Connection errors are retried while playitd creates its socket.
         if ((lastError as NodeJS.ErrnoException).code === 'PLAYIT_IPC_RESPONSE') break;
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
@@ -242,7 +280,6 @@ export class PlayitService {
           return;
         }
 
-        // playitd sends a hello frame immediately after opening the socket.
         if (frameIndex === 0) {
           frameIndex = 1;
           return;
@@ -302,22 +339,31 @@ export class PlayitService {
   private handleOutput(text: string): void {
     for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
       this.appendLog(line);
-      // Playit normally prints an endpoint such as host.ply.gg:12345.
       const match = line.match(/([a-zA-Z0-9.-]+\.(?:ply\.gg|playit\.gg))(?:\s*:\s*(\d+))?/i);
       if (!match?.[1] || !match[2]) continue;
+
       const domain = match[1];
       const publicPort = Number(match[2]);
       this.publicAddress = domain;
+
+      // Identify whether this line corresponds to Bedrock UDP or Java TCP
+      const isUdp = /udp/i.test(line) || /bedrock/i.test(line) || line.includes('19132');
+      const tunnelId = isUdp ? 'minecraft-bedrock' : 'minecraft-java';
+      const tunnelName = isUdp ? 'Minecraft Bedrock' : 'Minecraft Java';
+      const proto = isUdp ? 'udp' : 'tcp';
+      const localPort = isUdp ? this.getBedrockLocalPort() : this.getLocalPort();
+
       const tunnel: PlayitTunnel = {
-        id: 'minecraft-java',
-        name: 'Minecraft Java',
-        proto: 'tcp',
+        id: tunnelId,
+        name: tunnelName,
+        proto,
         publicAddress: domain,
         assignedDomain: domain,
         publicPort,
-        localPort: this.getLocalPort(),
+        localPort,
       };
-      this.tunnels = [tunnel];
+
+      this.tunnelsMap.set(tunnelId, tunnel);
     }
   }
 

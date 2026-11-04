@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from './AuthContext';
 import { Lock, ArrowRight, Eye, EyeOff, AlertCircle, Terminal } from 'lucide-react';
+import { InfoTip } from '../../components/common/InfoTip';
 
 export const LoginView: React.FC = () => {
   const { login, isLoading } = useAuth();
@@ -87,9 +88,12 @@ export const LoginView: React.FC = () => {
             {/* Input */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-slate-300">
-                  Contraseña
-                </label>
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-medium text-slate-300">
+                    Contraseña
+                  </label>
+                  <InfoTip content="Introduce la contraseña maestra configurada en ADMIN_PASSWORD (por defecto: admin)." />
+                </div>
                 <button
                   type="button"
                   onClick={() => {

@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 
 import { ConfigService } from './services/config.service';
 import { ProcessService } from './services/process.service';
+import { BedrockProcessService } from './services/bedrock-process.service';
 import { PlayitService } from './services/playit.service';
 import { authMiddleware } from './middlewares/auth.middleware';
 import { setupConsoleWebSocket } from './ws/console.ws';
@@ -21,6 +22,7 @@ import playersRoutes from './routes/players.routes';
 import modsRoutes from './routes/mods.routes';
 import playitRoutes from './routes/playit.routes';
 import filesRoutes from './routes/files.routes';
+import bedrockRoutes from './routes/bedrock.routes';
 
 dotenv.config();
 
@@ -29,6 +31,7 @@ const server = http.createServer(app);
 const configService = ConfigService.getInstance();
 const config = configService.getConfig();
 const processService = ProcessService.getInstance();
+const bedrockProcessService = BedrockProcessService.getInstance();
 const playitService = PlayitService.getInstance();
 
 // CORS setup
@@ -66,6 +69,7 @@ app.use('/api/players', authMiddleware, playersRoutes);
 app.use('/api/mods', authMiddleware, modsRoutes);
 app.use('/api/playit', authMiddleware, playitRoutes);
 app.use('/api/files', authMiddleware, filesRoutes);
+app.use('/api/bedrock', authMiddleware, bedrockRoutes);
 
 // Serve static frontend in production
 const clientDistCandidates = [
@@ -105,15 +109,23 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(` MCServer Manager Backend running on port ${PORT}`);
   console.log(` WebSocket console active on ws://0.0.0.0:${PORT}/ws/console`);
   console.log(` Server root directory: ${config.rootPath}`);
+  console.log(` Bedrock directory: ${configService.getBedrockDir()}`);
   console.log(` File explorer root: ${configService.getFileExplorerRoot()}`);
   console.log(` Initial setup done: ${config.initialSetupDone}`);
   console.log(`=======================================================`);
 
   if (process.env.MINECRAFT_AUTOSTART !== 'false') {
-    processService.start().then((result) => console.log(`[Minecraft] ${result.message}`)).catch((error) => {
-      console.error(`[Minecraft] ${error.message}`);
+    processService.start().then((result) => console.log(`[Minecraft Java] ${result.message}`)).catch((error) => {
+      console.error(`[Minecraft Java] ${error.message}`);
     });
   }
+
+  if (process.env.BEDROCK_AUTOSTART === 'true') {
+    bedrockProcessService.start().then((result) => console.log(`[Minecraft Bedrock] ${result.message}`)).catch((error) => {
+      console.error(`[Minecraft Bedrock] ${error.message}`);
+    });
+  }
+
   if (process.env.PLAYIT_AUTOSTART === 'true') {
     playitService.start().then((result) => console.log(`[Playit] ${result.message}`)).catch((error) => {
       console.error(`[Playit] ${error.message}`);
@@ -124,7 +136,11 @@ server.listen(PORT, '0.0.0.0', () => {
 // Handle graceful shutdown
 const shutdown = async () => {
   console.log('Shutting down server gracefully...');
-  await Promise.allSettled([processService.shutdown(), playitService.shutdown()]);
+  await Promise.allSettled([
+    processService.shutdown(),
+    bedrockProcessService.shutdown(),
+    playitService.shutdown(),
+  ]);
   server.close(() => {
     console.log('HTTP and WebSocket server closed.');
     process.exit(0);

@@ -9,8 +9,10 @@ services:
     ports:
       # Web panel & WebSocket
       - "3000:3000"
-      # Minecraft Java server
+      # Minecraft Java server (TCP)
       - "25565:25565"
+      # Minecraft Bedrock server (UDP)
+      - "19132:19132/udp"
     environment:
       PORT: 3000
       NODE_ENV: production
@@ -19,14 +21,16 @@ services:
       ALLOWED_ROOTS: /data
       PANEL_CONFIG_PATH: /data/panel-config.json
       MINECRAFT_AUTOSTART: ${MINECRAFT_AUTOSTART:-true}
+      BEDROCK_AUTOSTART: ${BEDROCK_AUTOSTART:-false}
       PLAYIT_AUTOSTART: ${PLAYIT_AUTOSTART:-false}
       PLAYIT_LOCAL_PORT: ${PLAYIT_LOCAL_PORT:-25565}
+      PLAYIT_BEDROCK_PORT: ${PLAYIT_BEDROCK_PORT:-19132}
       MASTER_PASSWORD: ${MASTER_PASSWORD:?Set MASTER_PASSWORD in Dokploy}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in Dokploy}
     volumes:
-      # Minecraft, NeoForge, mods, worlds, Playit and panel configuration
-      # all persist together and are managed by the process inside this
-      # container. Only the persistent Docker volume is used.
+      # Minecraft Java, NeoForge, Bedrock (BDS), mods, worlds, Playit and panel configuration
+      # all persist together and are managed by the processes inside this container.
+      # Only the persistent Docker volume is used.
       - mcserver-data:/data:rw
     logging:
       driver: "json-file"

@@ -3,14 +3,20 @@ import { api } from '../../lib/api';
 
 export type WsStatus = 'connected' | 'connecting' | 'disconnected';
 
+export interface LogEntry {
+  text: string;
+  server?: 'java' | 'bedrock' | 'system';
+}
+
 export function useConsoleWs() {
   const [status, setStatus] = useState<WsStatus>('connecting');
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [serverFilter, setServerFilter] = useState<'all' | 'java' | 'bedrock'>('all');
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
 
-  const addLogLine = useCallback((line: string) => {
-    setLogs((prev) => [...prev.slice(-1500), line]);
+  const addLogLine = useCallback((line: string, server: 'java' | 'bedrock' | 'system' = 'java') => {
+    setLogs((prev) => [...prev.slice(-1500), { text: line, server }]);
   }, []);
 
   const connectWebSocket = useCallback(() => {
@@ -24,19 +30,21 @@ export function useConsoleWs() {
 
       socket.onopen = () => {
         setStatus('connected');
-        addLogLine('\x1b[32m[WS] Conectado al stream de consola en vivo.\x1b[0m');
+        addLogLine('\x1b[32m[WS] Conectado al stream de consola en vivo (Java & Bedrock).\x1b[0m', 'system');
       };
 
       socket.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data);
           if (parsed.type === 'log' && typeof parsed.data === 'string') {
-            addLogLine(parsed.data);
+            addLogLine(parsed.data, parsed.server || 'java');
+          } else if (parsed.type === 'installer' && typeof parsed.data === 'string') {
+            addLogLine(parsed.data, parsed.server || 'java');
           } else {
-            addLogLine(event.data);
+            addLogLine(event.data, 'java');
           }
         } catch {
-          addLogLine(event.data);
+          addLogLine(event.data, 'java');
         }
       };
 
@@ -46,7 +54,6 @@ export function useConsoleWs() {
 
       socket.onclose = () => {
         setStatus('disconnected');
-        // Auto-reconnect after 3 seconds
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
           connectWebSocket();
@@ -72,14 +79,17 @@ export function useConsoleWs() {
   }, [connectWebSocket]);
 
   const sendCommand = useCallback(
-    async (command: string) => {
+    async (command: string, target: 'java' | 'bedrock' = 'java') => {
       if (!command.trim()) return;
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'command', command }));
+        wsRef.current.send(JSON.stringify({ type: 'command', command, target }));
       } else {
-        // Fallback to REST endpoint
-        await api.sendCommand(command);
+        if (target === 'bedrock') {
+          await api.sendBedrockCommand(command);
+        } else {
+          await api.sendCommand(command);
+        }
       }
     },
     []
@@ -89,9 +99,18 @@ export function useConsoleWs() {
     setLogs([]);
   }, []);
 
+  const filteredLogs = logs.filter((log) => {
+    if (serverFilter === 'all') return true;
+    if (log.server === 'system') return true;
+    return log.server === serverFilter;
+  });
+
   return {
     status,
-    logs,
+    logs: filteredLogs.map((l) => l.text),
+    rawLogs: logs,
+    serverFilter,
+    setServerFilter,
     sendCommand,
     clearLogs,
   };

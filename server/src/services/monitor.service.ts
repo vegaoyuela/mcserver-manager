@@ -8,8 +8,9 @@ import { ConfigService } from './config.service';
 import { ProcessService } from './process.service';
 import { PropertiesService } from './properties.service';
 import { VersionsService } from './versions.service';
+import { BedrockProcessService } from './bedrock-process.service';
 import { SUBDIRS } from '../config/constants';
-import { PlayerInfo } from '../types';
+import { PlayerInfo, ServerStatusResponse } from '../types';
 
 export class MonitorService {
   private static instance: MonitorService;
@@ -17,6 +18,7 @@ export class MonitorService {
   private processService: ProcessService;
   private propertiesService: PropertiesService;
   private versionsService: VersionsService;
+  private bedrockProcessService: BedrockProcessService;
   private lastDiskCheck = 0;
   private cachedDiskSize: { mb: number; formatted: string } = { mb: 0, formatted: '0 MB' };
 
@@ -25,6 +27,7 @@ export class MonitorService {
     this.processService = ProcessService.getInstance();
     this.propertiesService = PropertiesService.getInstance();
     this.versionsService = VersionsService.getInstance();
+    this.bedrockProcessService = BedrockProcessService.getInstance();
   }
 
   public static getInstance(): MonitorService {
@@ -60,93 +63,108 @@ export class MonitorService {
         return match[2].toLowerCase() === 'g' ? value * 1024 : value;
       } catch {}
     }
-    return 0;
+    return 8192;
   }
 
-  private getServerDirSize(serverDir: string): { mb: number; formatted: string } {
+  private getDirectorySize(dirPath: string): { mb: number; formatted: string } {
     const now = Date.now();
-    if (now - this.lastDiskCheck < 15000) return this.cachedDiskSize;
+    if (this.lastDiskCheck > 0 && now - this.lastDiskCheck < 30000) {
+      return this.cachedDiskSize;
+    }
     try {
-      if (fs.existsSync(serverDir)) {
-        const output = execFileSync('du', ['-sm', serverDir], { encoding: 'utf8' });
-        const match = output.match(/^(\d+)/);
-        if (match) {
-          const mb = Number(match[1]);
-          this.cachedDiskSize = { mb, formatted: mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB` };
+      if (fs.existsSync(dirPath)) {
+        if (process.platform !== 'win32') {
+          const output = execFileSync('du', ['-sm', dirPath], { encoding: 'utf8', timeout: 5000 });
+          const match = output.trim().match(/^([0-9]+)/);
+          if (match) {
+            const mb = Number(match[1]);
+            const formatted = mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb} MB`;
+            this.cachedDiskSize = { mb, formatted };
+            this.lastDiskCheck = now;
+            return this.cachedDiskSize;
+          }
         }
       }
     } catch {}
-    this.lastDiskCheck = now;
     return this.cachedDiskSize;
   }
 
-  private getFilesystemUsage(serverDir: string): { used: number; total: number; free: number; percent: number } {
+  private getPlayersFromLog(serverDir: string): PlayerInfo[] {
+    const logPath = path.join(serverDir, 'logs', 'latest.log');
+    if (!fs.existsSync(logPath)) return [];
     try {
-      const stat = fs.statfsSync(serverDir);
-      const blockSize = Number(stat.bsize);
-      const total = (Number(stat.blocks) * blockSize) / (1024 ** 3);
-      const free = (Number(stat.bavail) * blockSize) / (1024 ** 3);
-      const used = Math.max(0, total - free);
-      return { used, total, free, percent: total > 0 ? Math.round((used / total) * 100) : 0 };
+      const content = fs.readFileSync(logPath, 'utf8');
+      const lines = content.split('\n');
+      const playerMap = new Map<string, PlayerInfo>();
+      for (const line of lines.slice(-2000)) {
+        const joinMatch = line.match(/:\s*([a-zA-Z0-9_]{2,16})\s*\[.*\]\s*logged in with entity id/i)
+          || line.match(/:\s*([a-zA-Z0-9_]{2,16}) joined the game/i);
+        if (joinMatch) {
+          playerMap.set(joinMatch[1], { name: joinMatch[1] });
+          continue;
+        }
+        const leaveMatch = line.match(/:\s*([a-zA-Z0-9_]{2,16}) left the game/i)
+          || line.match(/:\s*([a-zA-Z0-9_]{2,16}) lost connection/i);
+        if (leaveMatch) {
+          playerMap.delete(leaveMatch[1]);
+        }
+      }
+      return Array.from(playerMap.values());
     } catch {
-      return { used: 0, total: 0, free: 0, percent: 0 };
+      return [];
     }
   }
 
-  private getPlayersFromLog(serverDir: string): PlayerInfo[] {
-    const active = new Set<string>();
+  private getFilesystemUsage(targetDir: string): { total: number; used: number; free: number; percent: number } {
     try {
-      const logPath = path.join(serverDir, 'logs', 'latest.log');
-      if (!fs.existsSync(logPath)) return [];
-      const log = fs.readFileSync(logPath, 'utf8');
-      for (const line of log.split(/\r?\n/)) {
-        const joined = line.match(/\]:\s*([A-Za-z0-9_]{1,16}) joined the game/i);
-        const left = line.match(/\]:\s*([A-Za-z0-9_]{1,16}) left the game/i);
-        if (joined) active.add(joined[1]);
-        if (left) active.delete(left[1]);
+      if (fs.existsSync(targetDir) && typeof (fs as any).statfsSync === 'function') {
+        const stats = (fs as any).statfsSync(targetDir);
+        const total = Math.round((Number(stats.blocks) * Number(stats.bsize)) / (1024 * 1024 * 1024));
+        const free = Math.round((Number(stats.bavail) * Number(stats.bsize)) / (1024 * 1024 * 1024));
+        const used = Math.max(0, total - free);
+        const percent = total > 0 ? Math.round((used / total) * 100) : 0;
+        return { total, used, free, percent };
       }
     } catch {}
-    return Array.from(active).map((name) => ({
-      name,
-      avatarUrl: `https://crafatar.com/avatars/${encodeURIComponent(name)}?size=48&default=MHF_Steve`,
-    }));
+    return { total: 0, used: 0, free: 0, percent: 0 };
   }
 
-  public async getStatus(): Promise<any> {
+  public async getStatus(): Promise<ServerStatusResponse> {
     const procStatus = await this.processService.getStatus();
     const serverDir = this.configService.getServerDir();
-    let hostCpu = 0;
+    const maxAllocatedRamMb = this.getMaxAllocatedRamMb(serverDir);
+
     let javaCpu = 0;
     let javaMemMb = 0;
-    let memUsed = 0;
-    let memTotal = 0;
-    let memPercent = 0;
-
-    try {
-      const [cpuLoad, memory] = await Promise.all([si.currentLoad(), si.mem()]);
-      hostCpu = Math.round((cpuLoad?.currentLoad || 0) * 10) / 10;
-      if (memory?.total) {
-        memTotal = Math.round(memory.total / (1024 * 1024));
-        const usedBytes = Number(memory.used || memory.total - (memory.available || 0) || 0);
-        memUsed = Math.round(usedBytes / (1024 * 1024));
-        memPercent = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
-      }
-    } catch (error) {
-      console.warn('[MonitorService] No se pudo leer CPU/RAM:', error);
-    }
-
     if (procStatus.isRunning && procStatus.pid) {
       try {
-        const stats = await pidusage(this.getJavaPid(procStatus.pid));
-        const cores = os.cpus().length || 1;
-        javaCpu = Math.round((stats.cpu / cores) * 10) / 10;
-        javaMemMb = Math.round((stats.memory || 0) / (1024 * 1024));
+        const javaPid = this.getJavaPid(procStatus.pid);
+        const stats = await pidusage(javaPid);
+        javaCpu = Math.round(stats.cpu);
+        javaMemMb = Math.round(stats.memory / (1024 * 1024));
       } catch {}
     }
 
-    const maxAllocatedRamMb = this.getMaxAllocatedRamMb(serverDir);
+    let hostCpu = 0;
+    try {
+      const load = await si.currentLoad();
+      hostCpu = Math.round(load.currentLoad);
+    } catch {
+      const cpus = os.cpus();
+      if (cpus.length > 0) {
+        const idle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+        const total = cpus.reduce((acc, cpu) => acc + Object.values(cpu.times).reduce((a, b) => a + b, 0), 0);
+        hostCpu = Math.max(0, Math.min(100, Math.round(100 - (idle / total) * 100)));
+      }
+    }
+
+    const memTotal = Math.round(os.totalmem() / (1024 * 1024));
+    const memFree = Math.round(os.freemem() / (1024 * 1024));
+    const memUsed = Math.max(0, memTotal - memFree);
+    const memPercent = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
     const ramPercent = maxAllocatedRamMb > 0 ? Math.min(100, Math.round((javaMemMb / maxAllocatedRamMb) * 100)) : 0;
-    const serverDirSize = this.getServerDirSize(serverDir);
+
+    const serverDirSize = this.getDirectorySize(serverDir);
     const filesystem = this.getFilesystemUsage(serverDir);
 
     let maxPlayers = 0;
@@ -168,6 +186,11 @@ export class MonitorService {
       else if (installed.mcVersion) displayVersion = `Minecraft ${installed.mcVersion} (${installed.loader === 'neoforge' ? 'NeoForge' : 'Vanilla'})`;
       else if (installed.loaderVersion) displayVersion = `NeoForge ${installed.loaderVersion}`;
     }
+
+    let bedrockStatus;
+    try {
+      bedrockStatus = await this.bedrockProcessService.getStatus();
+    } catch {}
 
     return {
       isRunning: procStatus.isRunning,
@@ -198,11 +221,10 @@ export class MonitorService {
         serverSizeMb: serverDirSize.mb,
         serverSizeFormatted: serverDirSize.formatted,
       },
-      // TPS requires server-side instrumentation. It is deliberately null
-      // instead of a fabricated 20 TPS value when no sampler is installed.
       tps: { current: null, avgTickMs: null, history: [] },
       players: { online: playerList.length, max: maxPlayers, list: playerList },
       crashDiagnostic: procStatus.crashDiagnostic || null,
+      bedrock: bedrockStatus,
     };
   }
 }

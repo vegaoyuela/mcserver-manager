@@ -19,4 +19,11 @@ export const SUBDIRS = {
   PLAYIT: 'playit',
   SCRIPTS: 'scripts',
   START_SCRIPT: path.join('scripts', 'start.sh'),
+  BEDROCK: 'bedrock',
+  BEDROCK_SERVER: path.join('bedrock', 'bedrock_server'),
+  BEDROCK_PROPERTIES: path.join('bedrock', 'server.properties'),
+  BEDROCK_PERMISSIONS: path.join('bedrock', 'permissions.json'),
+  BEDROCK_ALLOWLIST: path.join('bedrock', 'allowlist.json'),
+  BEDROCK_LOGS: path.join('bedrock', 'logs'),
+  BEDROCK_LATEST_LOG: path.join('bedrock', 'logs', 'latest.log'),
 };

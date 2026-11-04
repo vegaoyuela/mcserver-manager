@@ -62,17 +62,17 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
             <button
               onClick={() => setConfirmAction(null)}
               disabled={loading || actionPending}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+              className="px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-xs font-medium transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               onClick={handleConfirmAction}
               disabled={loading || actionPending}
-              className={`px-4 py-2 rounded-xl text-xs font-medium text-white transition-all flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all flex items-center gap-2 cursor-pointer ${
                 confirmAction === 'kill'
-                  ? 'bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-900/40'
-                  : 'bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-900/40'
+                  ? 'bg-rose-600 hover:bg-rose-500'
+                  : 'bg-amber-600 hover:bg-amber-500'
               }`}
             >
               {loading ? (
@@ -85,16 +85,12 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400 mb-2">
-            Selecciona una acción operativa para el contenedor y proceso del servidor de Minecraft:
-          </p>
-
+        <div className="space-y-3 pt-1">
           {!isRunning ? (
             <button
               onClick={() => handleTrigger('start')}
               disabled={loading || actionPending}
-              className="w-full p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-400 font-medium text-xs flex items-center justify-between transition-all group"
+              className="w-full p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/20 text-emerald-400 font-medium text-xs flex items-center justify-between transition-all group cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
@@ -102,7 +98,7 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
                 </div>
                 <div className="text-left">
                   <span className="font-semibold block text-white text-sm">Iniciar Servidor</span>
-                  <span className="text-slate-400 text-xs">Ejecuta el script de inicio start.sh</span>
+                  <span className="text-slate-400 text-xs font-normal">Ejecuta el script de inicio start.sh</span>
                 </div>
               </div>
             </button>
@@ -111,7 +107,7 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
               <button
                 onClick={() => handleTrigger('restart')}
                 disabled={loading || actionPending}
-                className="w-full p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-400 font-medium text-xs flex items-center justify-between transition-all group"
+                className="w-full p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20 text-amber-400 font-medium text-xs flex items-center justify-between transition-all group cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400">
@@ -119,7 +115,7 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
                   </div>
                   <div className="text-left">
                     <span className="font-semibold block text-white text-sm">Reiniciar Servidor</span>
-                    <span className="text-slate-400 text-xs">Detención suave y arranque inmediato</span>
+                    <span className="text-slate-400 text-xs font-normal">Detención suave y arranque inmediato</span>
                   </div>
                 </div>
               </button>
@@ -127,7 +123,7 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
               <button
                 onClick={() => handleTrigger('stop')}
                 disabled={loading || actionPending}
-                className="w-full p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-400 font-medium text-xs flex items-center justify-between transition-all group"
+                className="w-full p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 hover:bg-rose-500/20 text-rose-300 font-medium text-xs flex items-center justify-between transition-all group cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-rose-500/20 text-rose-400">
@@ -135,24 +131,24 @@ export const QuickActionsModal: React.FC<QuickActionsModalProps> = ({
                   </div>
                   <div className="text-left">
                     <span className="font-semibold block text-white text-sm">Detener Servidor (/stop)</span>
-                    <span className="text-slate-400 text-xs">Guarda el mundo y cierra sesión limpiamente</span>
+                    <span className="text-slate-400 text-xs font-normal">Guarda el mundo y cierra sesión limpiamente</span>
                   </div>
                 </div>
               </button>
 
-              <div className="pt-2 border-t border-slate-800">
+              <div className="pt-2 border-t border-white/[0.08]">
                 <button
                   onClick={() => handleTrigger('kill')}
                   disabled={loading}
-                  className="w-full p-3 rounded-xl bg-dark-950 border border-rose-900/50 hover:bg-rose-950/30 text-rose-500 font-medium text-xs flex items-center justify-between transition-all"
+                  className="w-full p-3 rounded-xl bg-[#070a0f] border border-rose-500/25 hover:bg-rose-950/20 text-rose-400 font-medium text-xs flex items-center justify-between transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="p-1.5 rounded-lg bg-rose-950 text-rose-400">
+                    <div className="p-1.5 rounded-lg bg-rose-950/40 text-rose-400">
                       <Skull className="w-4 h-4" />
                     </div>
                     <div className="text-left">
                       <span className="font-semibold block text-rose-300 text-xs">Forzar Apagado (Kill Inmediato)</span>
-                      <span className="text-slate-500 text-[11px]">Uso solo en caso de cuelgue o freeze</span>
+                      <span className="text-slate-500 text-[11px] font-normal">Uso solo en caso de cuelgue o freeze</span>
                     </div>
                   </div>
                 </button>

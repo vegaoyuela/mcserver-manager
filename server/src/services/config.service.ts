@@ -139,9 +139,6 @@ export class ConfigService {
     const root = this.config.rootPath;
     const standardServerDir = path.join(root, SUBDIRS.SERVER);
 
-    // Prefer a direct server root when it contains strong Minecraft markers.
-    // This must happen before checking <root>/server because that directory
-    // may have been created by ensureDirectoryStructure.
     const indicators = [
       'server.properties',
       'server.jar',
@@ -157,8 +154,11 @@ export class ConfigService {
       return root;
     }
 
-    // Standard manager layout: <root>/server.
     return standardServerDir;
+  }
+
+  public getBedrockDir(): string {
+    return path.join(this.config.rootPath, SUBDIRS.BEDROCK);
   }
 
   public resolvePath(...subpaths: string[]): string {
@@ -168,8 +168,15 @@ export class ConfigService {
         return this.getServerDir();
       }
       if (fullSubpath.startsWith('server' + path.sep) || fullSubpath.startsWith('server/')) {
-        const rel = fullSubpath.slice(7); // strip 'server/'
+        const rel = fullSubpath.slice(7);
         return path.resolve(this.getServerDir(), rel);
+      }
+      if (fullSubpath === 'bedrock' || fullSubpath === SUBDIRS.BEDROCK) {
+        return this.getBedrockDir();
+      }
+      if (fullSubpath.startsWith('bedrock' + path.sep) || fullSubpath.startsWith('bedrock/')) {
+        const rel = fullSubpath.slice(8);
+        return path.resolve(this.getBedrockDir(), rel);
       }
     }
     return path.resolve(this.config.rootPath, ...subpaths);
@@ -178,11 +185,14 @@ export class ConfigService {
   public ensureDirectoryStructure(): void {
     const root = this.config.rootPath;
     const serverDir = this.getServerDir();
+    const bedrockDir = this.getBedrockDir();
     const dirs = [
       root,
       serverDir,
       path.join(serverDir, 'mods'),
       path.join(serverDir, 'logs'),
+      bedrockDir,
+      path.join(bedrockDir, 'logs'),
       path.join(root, SUBDIRS.PLAYIT),
       path.join(root, SUBDIRS.SCRIPTS),
     ];
@@ -206,6 +216,7 @@ export class ConfigService {
     propertiesExists: boolean;
     playitExists: boolean;
     scriptsExists: boolean;
+    bedrockExists: boolean;
   } {
     const root = targetPath ? path.resolve(targetPath) : this.config.rootPath;
     if (!this.isPathAllowed(root)) {
@@ -213,6 +224,7 @@ export class ConfigService {
     }
 
     const serverDir = this.getServerDirForRoot(root);
+    const bedrockDir = path.join(root, SUBDIRS.BEDROCK);
     return {
       rootExists: fs.existsSync(root),
       serverExists: fs.existsSync(serverDir),
@@ -221,6 +233,7 @@ export class ConfigService {
       propertiesExists: fs.existsSync(path.join(serverDir, 'server.properties')),
       playitExists: fs.existsSync(path.join(root, SUBDIRS.PLAYIT)),
       scriptsExists: fs.existsSync(path.join(root, SUBDIRS.SCRIPTS)),
+      bedrockExists: fs.existsSync(bedrockDir),
     };
   }
 
@@ -236,7 +249,6 @@ export class ConfigService {
     const candidate = path.resolve(targetPath);
     if (!this.isLexicallyAllowed(candidate)) return false;
 
-    // Reject symlinks that escape an allowed bind mount.
     try {
       const existingPath = this.findExistingAncestor(candidate);
       const realCandidate = fs.realpathSync(existingPath);

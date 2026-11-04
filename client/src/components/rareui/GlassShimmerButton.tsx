@@ -33,12 +33,11 @@ export const GlassShimmerButton: React.FC<GlassShimmerButtonProps> = ({
       className={`group relative inline-flex items-center justify-center overflow-hidden rounded-xl border backdrop-blur-md transition-all duration-300 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
       {...props}
     >
-      {/* Shimmer sweeping beam */}
+      {/* Shimmer sweeping beam on hover */}
       <div
-        className="pointer-events-none absolute inset-0 -z-10 h-full w-[200%] -left-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+        className="pointer-events-none absolute inset-0 -z-10 h-full w-full -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-out"
         style={{
-          background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.15) 50%, transparent 100%)',
-          animation: 'shimmerSweep 2.2s infinite linear',
+          background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 50%, transparent 100%)',
         }}
       />
 

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Palette, Sparkles } from 'lucide-react';
+import { Palette, Sparkles, Server, Wifi } from 'lucide-react';
+import { InfoTip } from '../../components/common/InfoTip';
 
 interface MotdEditorProps {
   value: string;
@@ -37,7 +38,6 @@ export const MotdEditor: React.FC<MotdEditorProps> = ({ value, onChange }) => {
   const parseMinecraftFormatting = (text: string) => {
     if (!text) return null;
 
-    // Normalize & to §
     const normalized = text.replace(/&([0-9a-fk-or])/gi, '§$1');
     const parts = normalized.split(/(§[0-9a-fk-or])/gi);
 
@@ -86,28 +86,28 @@ export const MotdEditor: React.FC<MotdEditorProps> = ({ value, onChange }) => {
       <div className="space-y-1.5">
         <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>Previsualización en la Lista de Servidores de Minecraft</span>
+          <span>Previsualización en la Lista de Servidores</span>
         </label>
         
-        <div className="p-4 rounded-xl bg-black/90 border border-slate-700/80 shadow-2xl flex items-start gap-3 select-none">
+        <div className="p-4 rounded-xl bg-[#070a0f] border border-white/[0.08] shadow-lg flex items-start gap-3 select-none">
           {/* Default Server Icon */}
-          <div className="w-12 h-12 rounded bg-slate-800 border border-slate-600 flex items-center justify-center shrink-0 shadow">
-            <span className="text-xl">⛏️</span>
+          <div className="w-12 h-12 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400">
+            <Server className="w-6 h-6" />
           </div>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white font-mono tracking-wide">
+              <span className="text-xs font-semibold text-white font-mono tracking-tight">
                 Minecraft Server (NeoForge)
               </span>
               <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-400">
                 <span>4/20</span>
-                <span className="text-xs">📶</span>
+                <Wifi className="w-3.5 h-3.5 text-emerald-400" />
               </div>
             </div>
 
             {/* Rendered MOTD */}
-            <div className="mt-1 text-xs mc-font whitespace-pre-line leading-relaxed min-h-[38px] bg-slate-950/60 p-2 rounded border border-slate-800/80">
+            <div className="mt-1 text-xs mc-font whitespace-pre-line leading-relaxed min-h-[38px] bg-black/60 p-2 rounded-lg border border-white/[0.06]">
               {parseMinecraftFormatting(value) || <span className="text-slate-500 italic">Sin MOTD configurado</span>}
             </div>
           </div>
@@ -117,24 +117,24 @@ export const MotdEditor: React.FC<MotdEditorProps> = ({ value, onChange }) => {
       {/* Color code palette buttons */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-xs text-slate-400">
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 font-medium">
             <Palette className="w-3.5 h-3.5 text-cyan-400" />
             <span>Códigos de Color y Formato (§)</span>
           </span>
-          <span className="text-[11px] text-slate-400">Haz clic para insertar</span>
+          <span className="text-[11px] text-slate-500">Haz clic para insertar</span>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 p-2.5 rounded-xl bg-dark-950 border border-slate-800">
+        <div className="flex flex-wrap gap-1.5 p-2.5 rounded-xl bg-[#070a0f] border border-white/[0.08]">
           {COLOR_CODES.map((c) => (
             <button
               key={c.code}
               type="button"
               onClick={() => insertCode(c.code)}
-              className="px-2 py-1 rounded-md text-[11px] font-mono border border-slate-700 hover:border-slate-500 transition-all flex items-center gap-1.5 bg-slate-900"
+              className="px-2 py-1 rounded-md text-[11px] font-mono border border-white/[0.08] hover:border-white/[0.2] transition-all flex items-center gap-1.5 bg-white/[0.04] cursor-pointer"
               title={`${c.name} (${c.code})`}
             >
               <span
-                className="w-2.5 h-2.5 rounded-full inline-block border border-slate-600 shrink-0"
+                className="w-2.5 h-2.5 rounded-full inline-block border border-white/[0.2] shrink-0"
                 style={{ backgroundColor: c.hex }}
               />
               <span className="text-slate-300 font-semibold">{c.code}</span>
@@ -145,17 +145,17 @@ export const MotdEditor: React.FC<MotdEditorProps> = ({ value, onChange }) => {
 
       {/* Input textarea */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-300 block">Texto del MOTD</label>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-300">Texto del MOTD</label>
+          <InfoTip content="Usa § o & seguidos del código para aplicar colores o estilos. Usa saltos de línea para la segunda fila." />
+        </div>
         <textarea
           rows={3}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="§a§l★ NeoForge Server ★\n§b¡Entra y juega con nosotros!"
-          className="w-full px-3.5 py-2.5 bg-dark-950 border border-slate-700 rounded-xl text-xs sm:text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors resize-y"
+          className="w-full px-3.5 py-2.5 bg-[#070a0f] border border-white/[0.1] rounded-lg text-xs sm:text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 transition-colors resize-y"
         />
-        <p className="text-[11px] text-slate-400">
-          Puedes usar <code className="text-emerald-400 font-mono">§</code> o <code className="text-emerald-400 font-mono">&</code> seguidos del código para colorear el texto. Usa saltos de línea para la segunda fila.
-        </p>
       </div>
     </div>
   );
